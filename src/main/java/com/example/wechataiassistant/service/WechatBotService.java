@@ -243,6 +243,8 @@ public class WechatBotService implements AutoCloseable {
         log.info("微信客户端已关闭");
     }
 
+
+
     /** 会话文件内容（LoginContext + 更新游标）。 */
     record SessionFile(String botToken, String userId, String botId, String baseUrl, String updatesCursor) {}
 }

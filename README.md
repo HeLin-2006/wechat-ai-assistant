@@ -51,6 +51,9 @@ mvn package && java -jar target/wechat-ai-assistant-0.0.1-SNAPSHOT.jar
 
 登录成功后（状态持久化到 `wechat-session.json`），给机器人发消息即可自动得到 AI 回复。
 
+> **怎么和机器人对话**：iLink 的设计就是**扫码绑定的那个微信账号直接跟机器人聊**——登录后，在微信里打开与机器人的对话（机器人 ID 形如 `xxx@im.bot`），直接发消息即可。无需第二个微信号。
+> 若发现机器人不回复，先看控制台日志是否出现 `📩 消息: id=..., from=...`；若日志显示 `⏭️ 跳过` 且配置了 `wechat.ignore-self=true`，改成 `false`（默认即 false）后重启。
+
 ### 4. 语音回复（可选，需要本地编码工具）
 
 语音回复链路：`LLM TTS (mp3) → ffmpeg → PCM → silk_encoder → 微信语音消息`。

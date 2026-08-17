@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
  *   <li>GET /wechat/login —— 获取登录二维码</li>
  *   <li>GET /wechat/status —— 登录/连接状态</li>
  *   <li>GET /wechat/updates —— 手动拉取一次消息（调试用）</li>
- *   <li>POST /wechat/send/text|image|voice —— 主动发消息</li>
- *   <li>POST /wechat/clear-context —— 清空某用户上下文</li>
+ *   <li>POST /WeChat/send/text|image|voice —— 主动发消息</li>
+ *   <li>POST /WeChat/clear-context —— 清空某用户上下文</li>
  * </ul>
  */
 @RestController

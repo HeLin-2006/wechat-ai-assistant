@@ -3,6 +3,7 @@ package com.example.wechataiassistant.service.llm;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
 
 /**
  * 大模型（LLM）相关配置（前缀 llm.*）。
@@ -10,6 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>所有接口均采用 OpenAI 兼容协议（/chat/completions、/images/generations、/audio/speech），
  * 因此 base-url 可指向 OpenAI、DeepSeek、智谱 BigModel 等任何兼容服务。</p>
  */
+@Component
 @ConfigurationProperties(prefix = "llm")
 public class LlmProperties {
 
