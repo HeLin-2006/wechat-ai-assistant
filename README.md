@@ -66,7 +66,11 @@ mvn package && java -jar target/wechat-ai-assistant-0.0.1-SNAPSHOT.jar
 
 ### 4. 语音回复（可选，需要本地编码工具）
 
-语音回复链路：`LLM TTS (mp3) → ffmpeg → PCM → silk_encoder → 微信语音消息`。
+> ⚠️ **重要说明**：微信官方已调整协议，Bot 通过 `sendVoice` 发送的**语音气泡不再渲染**（接口正常返回，但用户看不到，见 [SDK issue #13](https://github.com/lith0924/wechat-ilink-sdk-java/issues/13)）。
+> 因此本项目默认把 TTS 音频作为 **mp3/wav 音频文件**发送（微信端可直接点开播放），`llm.voice-bubble-enabled=true` 可尝试 SILK 气泡（当前不显示）。
+> 入站语音识别不受影响（网关自带转写文本 / ASR）。
+
+语音回复链路：`LLM TTS → 音频文件（默认）` 或 `LLM TTS (mp3) → ffmpeg → PCM → silk_encoder → 微信语音消息（气泡模式，可选）`。
 
 安装依赖：
 

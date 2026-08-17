@@ -54,6 +54,14 @@ public class LlmProperties {
     /** 单条语音消息的最大字符数，超过则按句拆分多条发送（微信语音约 60s 上限）。 */
     private int ttsMaxCharsPerMessage = 100;
 
+    /**
+     * 语音回复方式：
+     * 微信官方已调整协议，Bot 通过 sendVoice 发送的语音气泡不再渲染（见 SDK issue #13），
+     * 因此默认把 TTS 音频作为文件（mp3）发送，用户可直接点开播放。
+     * 设为 true 则尝试发送 SILK 语音气泡（当前微信端不显示）。
+     */
+    private boolean voiceBubbleEnabled = false;
+
     // ---------- 语音转文字（ASR）：收到语音且网关未提供转写文本时使用 ----------
     private String asrModel = "";
     private String asrBaseUrl = "";
@@ -312,6 +320,14 @@ public class LlmProperties {
 
     public void setTtsMaxCharsPerMessage(int ttsMaxCharsPerMessage) {
         this.ttsMaxCharsPerMessage = ttsMaxCharsPerMessage;
+    }
+
+    public boolean isVoiceBubbleEnabled() {
+        return voiceBubbleEnabled;
+    }
+
+    public void setVoiceBubbleEnabled(boolean voiceBubbleEnabled) {
+        this.voiceBubbleEnabled = voiceBubbleEnabled;
     }
 
     public String getAsrModel() {

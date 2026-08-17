@@ -212,7 +212,10 @@ public class AiMessageHandler implements OnMessageListener {
             return;
         }
 
-        String imagePrompt = matchPrefix(raw, props.getImagePrefixes());
+        log.info("🧪 图片前缀配置: {}", props.getImagePrefixes());
+        log.info("🧪 当前消息: [{}]", raw);
+        String imagePrompt = matchImagePrefix(raw);
+
         if (imagePrompt != null) {
             log.info("🖼️ 处理图片生成: {}", imagePrompt);
             handleImageGeneration(from, imagePrompt);
@@ -220,7 +223,16 @@ public class AiMessageHandler implements OnMessageListener {
         }
 
         String voiceSpeak = matchPrefix(raw, props.getVoicePrefixes());
-        boolean wantVoice = voiceSpeak != null || voiceModeUsers.contains(from) || props.isVoiceReplyEnabled();
+
+        log.info("🎙️ 语音前缀配置: {}", props.getVoicePrefixes());
+        log.info("🎙️ voiceSpeak: [{}]", voiceSpeak);
+        log.info("🎙️ voiceMode: {}", voiceModeUsers.contains(from));
+        log.info("🎙️ voiceReplyEnabled: {}", props.isVoiceReplyEnabled());
+
+        boolean wantVoice =
+                voiceSpeak != null
+                        || voiceModeUsers.contains(from)
+                        || props.isVoiceReplyEnabled();
         if (wantVoice) {
             String reply;
             if (voiceSpeak != null && !voiceSpeak.isBlank()) {
@@ -239,6 +251,42 @@ public class AiMessageHandler implements OnMessageListener {
         log.info("📤 准备发送回复到 {}", from);
         bot.sendTextWithTyping(from, reply, 500);
         log.info("✅ 回复已发送");
+    }
+
+    private String matchImagePrefix(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+
+        String text = raw.trim();
+
+        // 英文指令
+        String prompt = matchPrefix(text, List.of("/img", "/image"));
+        if (prompt != null) {
+            return prompt;
+        }
+
+        // 中文指令
+        String[] prefixes = {
+                "生成一张",
+                "生成图片",
+                "帮我生成",
+                "帮我画",
+                "生成",
+                "画"
+        };
+
+        for (String prefix : prefixes) {
+            if (text.startsWith(prefix)) {
+                String rest = text.substring(prefix.length()).trim();
+
+                if (!rest.isEmpty()) {
+                    return rest;
+                }
+            }
+        }
+
+        return null;
     }
 
     private String askLlm(String from, String content, byte[] image) {
@@ -299,9 +347,18 @@ public class AiMessageHandler implements OnMessageListener {
             return;
         }
         List<String> segments = splitForTts(reply);
+        boolean first = true;
         for (String segment : segments) {
+            byte[] audio;
             try {
-                byte[] audio = llm.textToSpeech(segment);
+                audio = llm.textToSpeech(segment);
+            } catch (LlmException e) {
+                log.warn("TTS 合成失败，降级为文本回复: {}", e.getMessage());
+                safeSendText(from, "（语音合成失败，改为文字回复）" + reply);
+                return;
+            }
+            if (props.isVoiceBubbleEnabled()) {
+                // 尝试 SILK 语音气泡——注意：微信官方已调整协议，Bot 语音气泡不再渲染（SDK issue #13）
                 try {
                     VoiceEncoder.SilkResult silk = voiceEncoder.toSilk(audio);
                     bot.sendVoice(
@@ -312,14 +369,25 @@ public class AiMessageHandler implements OnMessageListener {
                             props.getVoice().getSampleRate());
                 } catch (VoiceEncodeException e) {
                     log.warn("语音编码失败，降级为发送音频文件: {}", e.getMessage());
-                    bot.sendFile(from, audio, "reply.mp3", "语音回复（音频文件）");
+                    bot.sendFile(from, audio, audioFileName(audio), first ? "语音回复（音频文件）" : null);
                 }
-            } catch (LlmException e) {
-                log.warn("TTS 合成失败，降级为文本回复: {}", e.getMessage());
-                safeSendText(from, "（语音合成失败，改为文字回复）" + reply);
-                return;
+            } else {
+                // 默认方式：把 TTS 音频作为文件发送，微信端可直接点开播放
+                bot.sendFile(from, audio, audioFileName(audio), first ? "语音回复" : null);
             }
+            first = false;
         }
+    }
+
+    /** 根据音频内容判断扩展名（wav 以 RIFF 开头，mp3 以 ID3/0xFF 开头）。 */
+    private static String audioFileName(byte[] audio) {
+        if (audio == null || audio.length < 4) {
+            return "reply.mp3";
+        }
+        if (audio[0] == 'R' && audio[1] == 'I' && audio[2] == 'F' && audio[3] == 'F') {
+            return "reply.wav";
+        }
+        return "reply.mp3";
     }
 
     /** 把长文本按句拆成多段，每段不超过 llm.tts-max-chars-per-message 字符（微信语音时长约 60s 上限）。 */

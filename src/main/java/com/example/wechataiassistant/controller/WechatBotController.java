@@ -116,6 +116,19 @@ public class WechatBotController {
         }
     }
 
+    /** 发送文件（微信官方已不渲染 Bot 语音气泡，语音回复以文件方式发送）。 */
+    @PostMapping("/send/file")
+    public Map<String, Object> sendFile(@RequestBody SendFileRequest req) {
+        try {
+            byte[] bytes = Base64.getDecoder().decode(req.base64());
+            bot.sendFile(req.toUserId(), bytes, req.fileName(), req.caption());
+            return Map.of("ok", true);
+        } catch (Exception e) {
+            log.error("发送文件失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
     @PostMapping("/clear-context")
     public Map<String, Object> clearContext(@RequestBody ClearContextRequest req) {
         bot.clearContext(req.toUserId());
@@ -223,6 +236,8 @@ public class WechatBotController {
 
     public record SendVoiceRequest(
         String toUserId, String base64, String fileName, Integer playTimeMs, Integer sampleRate) {}
+
+    public record SendFileRequest(String toUserId, String base64, String fileName, String caption) {}
 
     public record ClearContextRequest(String toUserId) {}
 
