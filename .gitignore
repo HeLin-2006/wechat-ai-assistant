@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# 本地运行数据（含登录凭据，勿提交）
+wechat-session.json
