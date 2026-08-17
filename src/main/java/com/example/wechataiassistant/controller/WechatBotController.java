@@ -4,6 +4,7 @@ import com.example.wechataiassistant.service.WechatBotService;
 import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmProperties;
+import com.example.wechataiassistant.voice.VoiceEncoder;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
 import java.io.IOException;
 import java.util.Base64;
@@ -41,11 +42,13 @@ public class WechatBotController {
     private final WechatBotService bot;
     private final LlmClient llm;
     private final LlmProperties llmProps;
+    private final VoiceEncoder voiceEncoder;
 
-    public WechatBotController(WechatBotService bot, LlmClient llm, LlmProperties llmProps) {
+    public WechatBotController(WechatBotService bot, LlmClient llm, LlmProperties llmProps, VoiceEncoder voiceEncoder) {
         this.bot = bot;
         this.llm = llm;
         this.llmProps = llmProps;
+        this.voiceEncoder = voiceEncoder;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -193,6 +196,23 @@ public class WechatBotController {
                 "base64", Base64.getEncoder().encodeToString(bytes));
         } catch (Exception e) {
             log.error("测试TTS失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 验证完整语音链路（TTS → PCM → SILK → 微信语音），返回 SILK 字节数与时长。 */
+    @GetMapping("/test/voice")
+    public Map<String, Object> testVoice(@RequestParam(defaultValue = "你好，我是你的微信 AI 助手") String text) {
+        try {
+            byte[] audio = llm.textToSpeech(text);
+            var silk = voiceEncoder.toSilk(audio);
+            return Map.of(
+                "ok", true,
+                "audioBytes", audio.length,
+                "silkBytes", silk.data().length,
+                "playTimeMs", silk.playTimeMs());
+        } catch (Exception e) {
+            log.error("测试语音链路失败", e);
             return Map.of("ok", false, "error", e.getMessage());
         }
     }

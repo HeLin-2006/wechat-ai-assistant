@@ -34,13 +34,25 @@ public class LlmProperties {
     private String imageBaseUrl = "";
     private String imageApiKey = "";
 
+    /** 生成图片尺寸，如 1024x1024（OpenAI）或 1024*1024（DashScope wanx），留空用服务商默认。 */
+    private String imageSize = "";
+
+    /** DashScope wanx 是否启用提示词扩展（prompt_extend）。 */
+    private boolean imagePromptExtend = false;
+
+    /** 图片生成最大等待时间（毫秒，DashScope wanx 为异步任务）。 */
+    private long imageTimeoutMs = 120000;
+
     // ---------- 语音合成（TTS）：默认复用主配置，可单独指向智谱 glm-tts 等 ----------
     private String ttsModel = "gpt-4o-mini-tts";
     private String ttsBaseUrl = "";
     private String ttsApiKey = "";
 
-    /** TTS 音色。 */
-    private String ttsVoice = "alloy";
+    /** TTS 音色（OpenAI: alloy；DashScope qwen-tts: Cherry/Serena 等）。 */
+    private String ttsVoice = "";
+
+    /** 单条语音消息的最大字符数，超过则按句拆分多条发送（微信语音约 60s 上限）。 */
+    private int ttsMaxCharsPerMessage = 100;
 
     // ---------- 语音转文字（ASR）：收到语音且网关未提供转写文本时使用 ----------
     private String asrModel = "";
@@ -190,12 +202,76 @@ public class LlmProperties {
         this.chatModel = chatModel;
     }
 
+    public String getVisionModel() {
+        return visionModel;
+    }
+
+    public void setVisionModel(String visionModel) {
+        this.visionModel = visionModel;
+    }
+
+    public String getVisionBaseUrl() {
+        return visionBaseUrl;
+    }
+
+    public void setVisionBaseUrl(String visionBaseUrl) {
+        this.visionBaseUrl = visionBaseUrl;
+    }
+
+    public String getVisionApiKey() {
+        return visionApiKey;
+    }
+
+    public void setVisionApiKey(String visionApiKey) {
+        this.visionApiKey = visionApiKey;
+    }
+
     public String getImageModel() {
         return imageModel;
     }
 
     public void setImageModel(String imageModel) {
         this.imageModel = imageModel;
+    }
+
+    public String getImageBaseUrl() {
+        return imageBaseUrl;
+    }
+
+    public void setImageBaseUrl(String imageBaseUrl) {
+        this.imageBaseUrl = imageBaseUrl;
+    }
+
+    public String getImageApiKey() {
+        return imageApiKey;
+    }
+
+    public void setImageApiKey(String imageApiKey) {
+        this.imageApiKey = imageApiKey;
+    }
+
+    public String getImageSize() {
+        return imageSize;
+    }
+
+    public void setImageSize(String imageSize) {
+        this.imageSize = imageSize;
+    }
+
+    public boolean isImagePromptExtend() {
+        return imagePromptExtend;
+    }
+
+    public void setImagePromptExtend(boolean imagePromptExtend) {
+        this.imagePromptExtend = imagePromptExtend;
+    }
+
+    public long getImageTimeoutMs() {
+        return imageTimeoutMs;
+    }
+
+    public void setImageTimeoutMs(long imageTimeoutMs) {
+        this.imageTimeoutMs = imageTimeoutMs;
     }
 
     public String getTtsModel() {
@@ -206,12 +282,60 @@ public class LlmProperties {
         this.ttsModel = ttsModel;
     }
 
+    public String getTtsBaseUrl() {
+        return ttsBaseUrl;
+    }
+
+    public void setTtsBaseUrl(String ttsBaseUrl) {
+        this.ttsBaseUrl = ttsBaseUrl;
+    }
+
+    public String getTtsApiKey() {
+        return ttsApiKey;
+    }
+
+    public void setTtsApiKey(String ttsApiKey) {
+        this.ttsApiKey = ttsApiKey;
+    }
+
     public String getTtsVoice() {
         return ttsVoice;
     }
 
     public void setTtsVoice(String ttsVoice) {
         this.ttsVoice = ttsVoice;
+    }
+
+    public int getTtsMaxCharsPerMessage() {
+        return ttsMaxCharsPerMessage;
+    }
+
+    public void setTtsMaxCharsPerMessage(int ttsMaxCharsPerMessage) {
+        this.ttsMaxCharsPerMessage = ttsMaxCharsPerMessage;
+    }
+
+    public String getAsrModel() {
+        return asrModel;
+    }
+
+    public void setAsrModel(String asrModel) {
+        this.asrModel = asrModel;
+    }
+
+    public String getAsrBaseUrl() {
+        return asrBaseUrl;
+    }
+
+    public void setAsrBaseUrl(String asrBaseUrl) {
+        this.asrBaseUrl = asrBaseUrl;
+    }
+
+    public String getAsrApiKey() {
+        return asrApiKey;
+    }
+
+    public void setAsrApiKey(String asrApiKey) {
+        this.asrApiKey = asrApiKey;
     }
 
     public double getChatTemperature() {

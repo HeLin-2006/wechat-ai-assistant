@@ -35,7 +35,8 @@ public class AiMessageHandler implements OnMessageListener {
             直接发文字/图片/语音即可对话。
             指令：
             · /img <描述>  或 画<描述> —— 生成图片
-            · /语音 <内容> 或 /voice <内容> —— 语音回复（需要 ffmpeg + silk_encoder）
+            · /语音 <内容> —— 语音回复（内容留空则回复 AI 的回答）
+            · /语音模式 —— 开启/关闭语音模式（之后每条回复都附带语音）
             · /clear —— 清空对话上下文
             · /help —— 显示本帮助
             """;
@@ -53,6 +54,9 @@ public class AiMessageHandler implements OnMessageListener {
      */
     private final Set<Long> seenMessageIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final int MAX_SEEN_IDS = 10_000;
+
+    /** 开启「语音模式」的用户（每次回复都附带语音，等价于 llm.voice-reply-enabled 的运行时开关）。 */
+    private final Set<String> voiceModeUsers = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService executor =
             Executors.newSingleThreadExecutor(
@@ -187,6 +191,26 @@ public class AiMessageHandler implements OnMessageListener {
             safeSendText(from, "好的，已清空我们的对话上下文～");
             return;
         }
+        // 语音模式开关（必须先于 /语音 前缀匹配，避免 /语音模式 被当作朗读内容）
+        if ("/语音模式".equals(raw) || "/voice-mode".equalsIgnoreCase(raw)) {
+            if (voiceModeUsers.remove(from)) {
+                safeSendText(from, "语音模式已关闭，之后回复只发文字。");
+            } else {
+                voiceModeUsers.add(from);
+                safeSendText(from, "语音模式已开启：之后的回复都会同时发一条语音。发送「/语音模式」可关闭。");
+            }
+            return;
+        }
+        if ("/语音开".equals(raw) || "/voice-on".equalsIgnoreCase(raw)) {
+            voiceModeUsers.add(from);
+            safeSendText(from, "语音模式已开启 ✅");
+            return;
+        }
+        if ("/语音关".equals(raw) || "/voice-off".equalsIgnoreCase(raw)) {
+            voiceModeUsers.remove(from);
+            safeSendText(from, "语音模式已关闭 ✅");
+            return;
+        }
 
         String imagePrompt = matchPrefix(raw, props.getImagePrefixes());
         if (imagePrompt != null) {
@@ -196,7 +220,7 @@ public class AiMessageHandler implements OnMessageListener {
         }
 
         String voiceSpeak = matchPrefix(raw, props.getVoicePrefixes());
-        boolean wantVoice = voiceSpeak != null || props.isVoiceReplyEnabled();
+        boolean wantVoice = voiceSpeak != null || voiceModeUsers.contains(from) || props.isVoiceReplyEnabled();
         if (wantVoice) {
             String reply;
             if (voiceSpeak != null && !voiceSpeak.isBlank()) {
@@ -274,19 +298,65 @@ public class AiMessageHandler implements OnMessageListener {
             safeSendText(from, "AI 尚未配置，无法合成语音。");
             return;
         }
-        byte[] mp3 = llm.textToSpeech(reply);
-        try {
-            VoiceEncoder.SilkResult silk = voiceEncoder.toSilk(mp3);
-            bot.sendVoice(
-                    from,
-                    silk.data(),
-                    "reply.silk",
-                    (int) silk.playTimeMs(),
-                    props.getVoice().getSampleRate());
-        } catch (VoiceEncodeException e) {
-            log.warn("语音编码失败，降级为发送音频文件: {}", e.getMessage());
-            bot.sendFile(from, mp3, "reply.mp3", "语音回复（音频文件）");
+        List<String> segments = splitForTts(reply);
+        for (String segment : segments) {
+            try {
+                byte[] audio = llm.textToSpeech(segment);
+                try {
+                    VoiceEncoder.SilkResult silk = voiceEncoder.toSilk(audio);
+                    bot.sendVoice(
+                            from,
+                            silk.data(),
+                            "reply.silk",
+                            (int) silk.playTimeMs(),
+                            props.getVoice().getSampleRate());
+                } catch (VoiceEncodeException e) {
+                    log.warn("语音编码失败，降级为发送音频文件: {}", e.getMessage());
+                    bot.sendFile(from, audio, "reply.mp3", "语音回复（音频文件）");
+                }
+            } catch (LlmException e) {
+                log.warn("TTS 合成失败，降级为文本回复: {}", e.getMessage());
+                safeSendText(from, "（语音合成失败，改为文字回复）" + reply);
+                return;
+            }
         }
+    }
+
+    /** 把长文本按句拆成多段，每段不超过 llm.tts-max-chars-per-message 字符（微信语音时长约 60s 上限）。 */
+    private List<String> splitForTts(String text) {
+        int hardLimit = Math.max(props.getTtsMaxCharsPerMessage(), 20);
+        int softLimit = Math.max(hardLimit / 2, 10);
+        List<String> parts = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            parts.add("嗯？");
+            return parts;
+        }
+        if (text.length() <= hardLimit) {
+            parts.add(text);
+            return parts;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            sb.append(c);
+            if (isSentenceEnd(c) && sb.length() >= softLimit) {
+                parts.add(sb.toString().trim());
+                sb.setLength(0);
+            } else if (sb.length() >= hardLimit) {
+                parts.add(sb.toString().trim());
+                sb.setLength(0);
+            }
+        }
+        if (!sb.isEmpty()) {
+            parts.add(sb.toString().trim());
+        }
+        log.info("🎙️ 语音回复拆分为 {} 段", parts.size());
+        return parts;
+    }
+
+    private static boolean isSentenceEnd(char c) {
+        return c == '。' || c == '！' || c == '？' || c == '.' || c == '!' || c == '?'
+                || c == '；' || c == ';' || c == '\n';
     }
 
     private String buildUserContent(String raw, String voiceText) {

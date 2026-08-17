@@ -34,3 +34,6 @@ build/
 
 # 本地运行数据（含登录凭据，勿提交）
 wechat-session.json
+
+# 本地密钥（含 API Key，勿提交）
+application-secret.properties
