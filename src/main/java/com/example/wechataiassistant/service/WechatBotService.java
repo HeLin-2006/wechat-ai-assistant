@@ -163,6 +163,10 @@ public class WechatBotService implements AutoCloseable {
         return client.downloadImageFromMessageItem(item);
     }
 
+    public byte[] downloadVoice(MessageItem item) throws IOException {
+        return client.downloadVoiceFromMessageItem(item);
+    }
+
     public List<WeixinMessage> pollUpdates() throws IOException {
         return client.getUpdates();
     }

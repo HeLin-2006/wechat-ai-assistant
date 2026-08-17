@@ -128,6 +128,7 @@ public class AiMessageHandler implements OnMessageListener {
         StringBuilder text = new StringBuilder();
         byte[] image = null;
         String voiceText = null;
+        byte[] voiceBytes = null;
 
         for (MessageItem item : items) {
             if (item.getText_item() != null && item.getText_item().getText() != null) {
@@ -140,9 +141,17 @@ public class AiMessageHandler implements OnMessageListener {
                 }
             } else if (item.getImage_item() != null && image == null) {
                 image = bot.downloadImage(item);
-            } else if (item.getVoice_item() != null && voiceText == null) {
+            } else if (item.getVoice_item() != null) {
                 voiceText = item.getVoice_item().getText();
+                if ((voiceText == null || voiceText.isBlank()) && voiceBytes == null) {
+                    voiceBytes = bot.downloadVoice(item);
+                }
             }
+        }
+
+        // 网关未提供语音转写文本时，尝试用 ASR 接口转写
+        if ((voiceText == null || voiceText.isBlank()) && voiceBytes != null) {
+            voiceText = transcribeVoice(voiceBytes);
         }
 
         String raw = text.toString().trim();
@@ -154,6 +163,10 @@ public class AiMessageHandler implements OnMessageListener {
         if (content == null || content.isEmpty()) {
             if (image != null) {
                 content = "（收到一张图片，请分析并描述图片内容）";
+            } else if (voiceBytes != null && voiceText == null) {
+                log.info("⚠️ 语音转写失败，回复提示");
+                safeSendText(from, "收到语音消息，但我没听清内容，方便的话请用文字再说一次～");
+                return;
             } else {
                 log.info("⚠️ 消息内容为空，回复提示");
                 safeSendText(from, "我暂时只能处理文字、图片和语音消息哦～");
@@ -217,18 +230,33 @@ public class AiMessageHandler implements OnMessageListener {
         List<ChatMessage> messages = new ArrayList<>(memory.history(from));
         messages.add(ChatMessage.user(content));
 
-        String imageDataUri =
-                image != null
-                        ? "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image)
-                        : null;
-
-        log.info("📤 调用 llm.chat...");
-        String reply = llm.chat(messages, imageDataUri);
+        log.info("📤 调用 llm.chat/chatWithVision...");
+        String reply;
+        if (image != null) {
+            String imageDataUri =
+                    "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image);
+            reply = llm.chatWithVision(messages, imageDataUri);
+        } else {
+            reply = llm.chat(messages);
+        }
         log.info("📥 LLM 返回: {}", reply);
 
         memory.add(from, ChatMessage.user(content));
         memory.add(from, ChatMessage.assistant(reply));
         return reply;
+    }
+
+    /** 语音转文字：silk -> wav -> ASR 接口。失败返回 null。 */
+    private String transcribeVoice(byte[] voiceBytes) {
+        try {
+            byte[] wav = voiceEncoder.decodeToWav(voiceBytes);
+            String text = llm.transcribe(wav, "voice.wav");
+            log.info("🎙️ 语音转文字: {}", text);
+            return text;
+        } catch (Exception e) {
+            log.warn("⚠️ 语音转写失败: {}", brief(e));
+            return null;
+        }
     }
 
     private void handleImageGeneration(String from, String prompt) throws Exception {

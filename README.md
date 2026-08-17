@@ -23,21 +23,31 @@
 
 ### 2. 配置 API Key
 
-在 `src/main/resources/application.properties` 中配置（推荐用环境变量注入，避免 Key 进仓库）：
+在 `src/main/resources/application.properties` 中配置（**推荐用环境变量注入，避免 Key 进仓库**）：
 
 ```bash
-export LLM_API_KEY=sk-xxxx
-export LLM_BASE_URL=https://api.openai.com/v1   # 可选，默认 OpenAI
+# 文本对话（DeepSeek，够快够便宜）
+export LLM_API_KEY=sk-deepseek-xxxx
+export LLM_BASE_URL=https://api.deepseek.com
+
+# 图片理解 / 图片生成 / 语音（推荐智谱，一个 Key 搞定，有免费模型）
+export LLM_VISION_API_KEY=sk-zhipu-xxxx
+export LLM_IMAGE_API_KEY=sk-zhipu-xxxx
+export LLM_TTS_API_KEY=sk-zhipu-xxxx
 ```
 
-| 服务商 | Key 申请地址 | base-url | 模型示例 | 能力 |
-|---|---|---|---|---|
-| OpenAI | https://platform.openai.com/api-keys | `https://api.openai.com/v1`（默认） | `gpt-4o-mini` / `gpt-image-1` / `gpt-4o-mini-tts` | 文本+视觉+图片+语音 ✅ |
-| DeepSeek | https://platform.deepseek.com/api_keys | `https://api.deepseek.com` | `deepseek-chat` | 仅文本对话 |
-| 智谱 BigModel | https://open.bigmodel.cn/usercenter/apikeys | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.5-flash` / `cogview-3-flash` | 文本+视觉+图片（TTS 走原生接口） |
-| Moonshot | https://platform.moonshot.cn/console/api-keys | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` | 文本+视觉 |
+> 智谱 Key 申请：https://open.bigmodel.cn/usercenter/apikeys （GLM-4V-Flash 视觉、cogview-3-flash 生图免费）
 
-> 图片生成与语音合成需要模型支持；若未配置对应模型，相关指令会给出友好提示。
+| 能力 | 推荐服务商 | 配置项（未配置时回退到主配置） |
+|---|---|---|
+| 文本对话 | DeepSeek `deepseek-chat` | `llm.api-key` / `llm.base-url` / `llm.chat-model` |
+| 图片理解（视觉） | 智谱 `glm-4v-flash` | `llm.vision-api-key` / `llm.vision-base-url` / `llm.vision-model` |
+| 图片生成 | 智谱 `cogview-3-flash` | `llm.image-api-key` / `llm.image-base-url` / `llm.image-model` |
+| 语音合成 TTS | 智谱 `glm-tts` | `llm.tts-api-key` / `llm.tts-base-url` / `llm.tts-model` |
+| 语音转写 ASR | 智谱 `glm-asr-2512` | `llm.asr-api-key` / `llm.asr-base-url` / `llm.asr-model` |
+
+> 也可以全部用 OpenAI（`gpt-4o-mini` / `gpt-image-1` / `gpt-4o-mini-tts`），一个 Key 全能力。
+> 配置后可用 `GET /wechat/llm-config` 查看生效配置（Key 打码），用 `GET /wechat/test/chat|image|tts` 单独验证每项能力。
 
 ### 3. 启动并扫码登录
 
@@ -61,16 +71,17 @@ mvn package && java -jar target/wechat-ai-assistant-0.0.1-SNAPSHOT.jar
 安装依赖：
 
 ```bash
-# macOS
+# macOS（ffmpeg）
 brew install ffmpeg
-# Debian/Ubuntu
-sudo apt install ffmpeg
 
-# 编译 silk-v3-encoder
-git clone https://github.com/kn007/silk-v3-encoder.git
-cd silk-v3-encoder && make
-# 把生成的 silk_encoder 加入 PATH，或配置：
-#   llm.voice.silk-encoder-path=/path/to/silk-v3-encoder/silk_encoder
+# silk 编解码器（本机已编译安装到 /opt/homebrew/bin/silk_codec，
+# 并提供 silk_encoder / silk_decoder 兼容命令；其他机器可参考：
+#   git clone https://github.com/KasukuSakura/silk-codec.git
+#   cd silk-codec/native && clang++ -O2 -std=c++14 \
+#     -I jni_include/common -I jni_include/inc_mac -I src/interface -I src/silk \
+#     -I src/bind -I <cxxopts路径> \
+#     -o silk_codec src/silk_codec/main.cpp src/bind/*.cpp $(find src/silk -name '*.c') -lm
+# 再按需配置 llm.voice.silk-encoder-path / silk-decoder-path)
 ```
 
 未安装时功能自动降级：语音回复改为发送 mp3 音频文件，不影响其他功能。

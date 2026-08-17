@@ -95,6 +95,89 @@ public class VoiceEncoder {
         }
     }
 
+    /**
+     * 把收到的微信语音（SILK）解码为 16kHz 单声道 WAV，用于交给 ASR 接口转写。
+     * 若 silk_decoder 无法解码（文件可能不是 SILK），直接尝试用 ffmpeg 转码。
+     *
+     * @param voiceBytes 网关下载的语音原始字节
+     * @return WAV 字节
+     */
+    public byte[] decodeToWav(byte[] voiceBytes) throws VoiceEncodeException {
+        Path dir = null;
+        try {
+            dir = Files.createTempDirectory("wechat-voice-decode-");
+            Path input = dir.resolve("input.voice");
+            Path pcm = dir.resolve("decoded.pcm");
+            Path wav = dir.resolve("decoded.wav");
+            Files.write(input, voiceBytes);
+
+            // 1) silk -> pcm（silk_decoder 支持带 Tencent 头的微信语音）
+            try {
+                run(
+                    new ProcessBuilder(
+                        props.getVoice().getSilkDecoderPath(),
+                        input.toString(),
+                        pcm.toString(),
+                        "-Fs_API", String.valueOf(props.getVoice().getSampleRate())),
+                    null);
+            } catch (VoiceEncodeException silkFail) {
+                log.warn("silk_decoder 解码失败，尝试直接用 ffmpeg 转码: {}", silkFail.getMessage());
+            }
+
+            // 2) pcm -> wav（16kHz 单声道，ASR 兼容）
+            if (Files.exists(pcm) && Files.size(pcm) > 0) {
+                run(
+                    new ProcessBuilder(
+                        props.getVoice().getFfmpegPath(),
+                        "-loglevel", "error",
+                        "-y",
+                        "-f", "s16le",
+                        "-ar", String.valueOf(props.getVoice().getSampleRate()),
+                        "-ac", "1",
+                        "-i", pcm.toString(),
+                        "-ar", "16000",
+                        "-ac", "1",
+                        wav.toString()),
+                    null);
+            } else {
+                run(
+                    new ProcessBuilder(
+                        props.getVoice().getFfmpegPath(),
+                        "-loglevel", "error",
+                        "-y",
+                        "-i", input.toString(),
+                        "-ar", "16000",
+                        "-ac", "1",
+                        wav.toString()),
+                    null);
+            }
+
+            byte[] data = Files.readAllBytes(wav);
+            if (data.length == 0) {
+                throw new VoiceEncodeException("解码后的 WAV 数据为空");
+            }
+            return data;
+        } catch (VoiceEncodeException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new VoiceEncodeException("语音解码工具执行失败: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new VoiceEncodeException("语音解码被中断", e);
+        } finally {
+            if (dir != null) {
+                try {
+                    Files.deleteIfExists(dir.resolve("input.voice"));
+                    Files.deleteIfExists(dir.resolve("decoded.pcm"));
+                    Files.deleteIfExists(dir.resolve("decoded.wav"));
+                    Files.deleteIfExists(dir);
+                } catch (IOException ignore) {
+                    // 清理失败不影响主流程
+                }
+            }
+        }
+    }
+
     private void run(ProcessBuilder pb, byte[] stdin) throws IOException, InterruptedException, VoiceEncodeException {
         log.debug("执行命令: {}", String.join(" ", pb.command()));
         Process p = pb.start();

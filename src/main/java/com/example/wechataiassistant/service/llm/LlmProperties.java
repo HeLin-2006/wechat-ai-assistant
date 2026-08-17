@@ -24,14 +24,28 @@ public class LlmProperties {
     /** 文本/视觉对话模型。 */
     private String chatModel = "gpt-4o-mini";
 
-    /** 图片生成模型。 */
-    private String imageModel = "gpt-image-1";
+    // ---------- 图片理解（视觉）：默认复用 chat 配置，可单独指向智谱等视觉模型 ----------
+    private String visionModel = "";
+    private String visionBaseUrl = "";
+    private String visionApiKey = "";
 
-    /** 语音合成（TTS）模型。 */
+    // ---------- 图片生成：默认复用主配置，可单独指向智谱 cogview 等 ----------
+    private String imageModel = "gpt-image-1";
+    private String imageBaseUrl = "";
+    private String imageApiKey = "";
+
+    // ---------- 语音合成（TTS）：默认复用主配置，可单独指向智谱 glm-tts 等 ----------
     private String ttsModel = "gpt-4o-mini-tts";
+    private String ttsBaseUrl = "";
+    private String ttsApiKey = "";
 
     /** TTS 音色。 */
     private String ttsVoice = "alloy";
+
+    // ---------- 语音转文字（ASR）：收到语音且网关未提供转写文本时使用 ----------
+    private String asrModel = "";
+    private String asrBaseUrl = "";
+    private String asrApiKey = "";
 
     /** 对话采样温度。 */
     private double chatTemperature = 0.7;
@@ -59,6 +73,52 @@ public class LlmProperties {
     /** 语音编码（mp3 -> silk）相关配置。 */
     private Voice voice = new Voice();
 
+    // ---------- 解析方法：未单独配置时回退到主配置 ----------
+
+    public String resolveVisionModel() {
+        return isBlank(visionModel) ? chatModel : visionModel;
+    }
+
+    public String resolveVisionBaseUrl() {
+        return isBlank(visionBaseUrl) ? baseUrl : visionBaseUrl;
+    }
+
+    public String resolveVisionApiKey() {
+        return isBlank(visionApiKey) ? apiKey : visionApiKey;
+    }
+
+    public String resolveImageBaseUrl() {
+        return isBlank(imageBaseUrl) ? baseUrl : imageBaseUrl;
+    }
+
+    public String resolveImageApiKey() {
+        return isBlank(imageApiKey) ? apiKey : imageApiKey;
+    }
+
+    public String resolveTtsBaseUrl() {
+        return isBlank(ttsBaseUrl) ? baseUrl : ttsBaseUrl;
+    }
+
+    public String resolveTtsApiKey() {
+        return isBlank(ttsApiKey) ? apiKey : ttsApiKey;
+    }
+
+    public String resolveAsrModel() {
+        return isBlank(asrModel) ? "" : asrModel;
+    }
+
+    public String resolveAsrBaseUrl() {
+        return isBlank(asrBaseUrl) ? baseUrl : asrBaseUrl;
+    }
+
+    public String resolveAsrApiKey() {
+        return isBlank(asrApiKey) ? apiKey : asrApiKey;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     public static class Voice {
 
         /** ffmpeg 可执行文件路径（用于把 mp3 转为 PCM）。 */
@@ -66,6 +126,9 @@ public class LlmProperties {
 
         /** silk-v3-encoder 的 silk_encoder 可执行文件路径（用于把 PCM 编码为 SILK）。 */
         private String silkEncoderPath = "silk_encoder";
+
+        /** silk 解码器可执行文件路径（用于把收到的微信语音解码，交给 ASR 转写）。 */
+        private String silkDecoderPath = "silk_decoder";
 
         /** 微信语音使用的采样率。 */
         private int sampleRate = 24000;
@@ -84,6 +147,14 @@ public class LlmProperties {
 
         public void setSilkEncoderPath(String silkEncoderPath) {
             this.silkEncoderPath = silkEncoderPath;
+        }
+
+        public String getSilkDecoderPath() {
+            return silkDecoderPath;
+        }
+
+        public void setSilkDecoderPath(String silkDecoderPath) {
+            this.silkDecoderPath = silkDecoderPath;
         }
 
         public int getSampleRate() {

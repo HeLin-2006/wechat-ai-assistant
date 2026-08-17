@@ -1,6 +1,9 @@
 package com.example.wechataiassistant.controller;
 
 import com.example.wechataiassistant.service.WechatBotService;
+import com.example.wechataiassistant.service.llm.ChatMessage;
+import com.example.wechataiassistant.service.llm.LlmClient;
+import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
 import java.io.IOException;
 import java.util.Base64;
@@ -25,6 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
  *   <li>GET /wechat/updates —— 手动拉取一次消息（调试用）</li>
  *   <li>POST /WeChat/send/text|image|voice —— 主动发消息</li>
  *   <li>POST /WeChat/clear-context —— 清空某用户上下文</li>
+ *   <li>GET /wechat/llm-config —— 查看 LLM 配置（Key 打码）</li>
+ *   <li>GET /wechat/test/chat|image|tts —— 单独验证文本/生图/语音合成</li>
  * </ul>
  */
 @RestController
@@ -34,9 +39,13 @@ public class WechatBotController {
     private static final Logger log = LoggerFactory.getLogger(WechatBotController.class);
 
     private final WechatBotService bot;
+    private final LlmClient llm;
+    private final LlmProperties llmProps;
 
-    public WechatBotController(WechatBotService bot) {
+    public WechatBotController(WechatBotService bot, LlmClient llm, LlmProperties llmProps) {
         this.bot = bot;
+        this.llm = llm;
+        this.llmProps = llmProps;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -108,6 +117,84 @@ public class WechatBotController {
     public Map<String, Object> clearContext(@RequestBody ClearContextRequest req) {
         bot.clearContext(req.toUserId());
         return Map.of("ok", true);
+    }
+
+    // ------------------------------------------------------------------
+    // 调试/自测接口
+    // ------------------------------------------------------------------
+
+    /** 查看当前 LLM 各能力配置（API Key 打码）。 */
+    @GetMapping("/llm-config")
+    public Map<String, Object> llmConfig() {
+        return Map.of(
+            "chat", configOf(llmProps.getBaseUrl(), llmProps.getChatModel(), llmProps.getApiKey()),
+            "vision", configOf(llmProps.resolveVisionBaseUrl(), llmProps.resolveVisionModel(), llmProps.resolveVisionApiKey()),
+            "image", configOf(llmProps.resolveImageBaseUrl(), llmProps.getImageModel(), llmProps.resolveImageApiKey()),
+            "tts", configOf(llmProps.resolveTtsBaseUrl(), llmProps.getTtsModel(), llmProps.resolveTtsApiKey()),
+            "asr", configOf(llmProps.resolveAsrBaseUrl(), llmProps.resolveAsrModel(), llmProps.resolveAsrApiKey()),
+            "tools", Map.of(
+                "ffmpeg", llmProps.getVoice().getFfmpegPath(),
+                "silkEncoder", llmProps.getVoice().getSilkEncoderPath(),
+                "silkDecoder", llmProps.getVoice().getSilkDecoderPath()));
+    }
+
+    private Map<String, String> configOf(String baseUrl, String model, String apiKey) {
+        return Map.of(
+            "baseUrl", baseUrl,
+            "model", model == null || model.isBlank() ? "(未配置)" : model,
+            "apiKey", maskKey(apiKey));
+    }
+
+    private static String maskKey(String key) {
+        if (key == null || key.isBlank()) {
+            return "(未配置)";
+        }
+        if (key.length() <= 8) {
+            return "****";
+        }
+        return key.substring(0, 4) + "****" + key.substring(key.length() - 4);
+    }
+
+    /** 单独验证文本对话。 */
+    @GetMapping("/test/chat")
+    public Map<String, Object> testChat(@RequestParam(defaultValue = "你好，请简单介绍下自己") String text) {
+        try {
+            String reply = llm.chat(List.of(ChatMessage.user(text)));
+            return Map.of("ok", true, "reply", reply);
+        } catch (Exception e) {
+            log.error("测试对话失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 单独验证图片生成（返回 base64 预览与字节数）。 */
+    @GetMapping("/test/image")
+    public Map<String, Object> testImage(@RequestParam(defaultValue = "一只戴眼镜的橘猫") String prompt) {
+        try {
+            byte[] bytes = llm.generateImage(prompt);
+            return Map.of(
+                "ok", true,
+                "bytes", bytes.length,
+                "base64", Base64.getEncoder().encodeToString(bytes));
+        } catch (Exception e) {
+            log.error("测试生图失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 单独验证语音合成（返回 base64 音频与字节数）。 */
+    @GetMapping("/test/tts")
+    public Map<String, Object> testTts(@RequestParam(defaultValue = "你好，我是你的微信 AI 助手") String text) {
+        try {
+            byte[] bytes = llm.textToSpeech(text);
+            return Map.of(
+                "ok", true,
+                "bytes", bytes.length,
+                "base64", Base64.getEncoder().encodeToString(bytes));
+        } catch (Exception e) {
+            log.error("测试TTS失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
     }
 
     public record SendTextRequest(String toUserId, String text) {}
