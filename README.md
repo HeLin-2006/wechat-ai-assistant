@@ -8,10 +8,12 @@
 |---|---|
 | 🔐 微信连接 | [wechat-ilink-sdk](https://github.com/lith0924/wechat-ilink-sdk-java) 二维码登录，登录态持久化，重启免扫码 |
 | 📨 收发消息 | 心跳轮询收消息；支持发送文本 / 图片 / 语音 / 文件 / 视频 |
+| 🧠 意图识别 | 自动识别天气 / 生图 / 语音 / 指令 / 闲聊，按意图路由 |
+| 🌤️ 天气查询 | 说「北京明天天气」→ 自动查和风天气（或 Open-Meteo）返回实时天气与预报 |
 | 💬 文本回复 | OpenAI 兼容 Chat Completions |
 | 🖼️ 图片理解 | 收到图片自动走视觉模型描述内容 |
 | 🎨 图片生成 | 发「画一只猫」/「/img 一只猫」→ 生成图片并发送 |
-| 🎤 语音 | 收到语音自动转文字；「/语音 你好」→ TTS 合成语音回复（mp3→SILK） |
+| 🎤 语音 | 收到语音自动转文字；「/语音 你好」→ TTS 合成语音/音频文件回复 |
 | 🧠 多轮记忆 | 每用户保留最近 N 轮上下文，/clear 清空 |
 
 ## 快速开始
@@ -64,7 +66,24 @@ mvn package && java -jar target/wechat-ai-assistant-0.0.1-SNAPSHOT.jar
 > **怎么和机器人对话**：iLink 的设计就是**扫码绑定的那个微信账号直接跟机器人聊**——登录后，在微信里打开与机器人的对话（机器人 ID 形如 `xxx@im.bot`），直接发消息即可。无需第二个微信号。
 > 若发现机器人不回复，先看控制台日志是否出现 `📩 消息: id=..., from=...`；若日志显示 `⏭️ 跳过` 且配置了 `wechat.ignore-self=true`，改成 `false`（默认即 false）后重启。
 
-### 4. 语音回复（可选，需要本地编码工具）
+### 4. 天气查询（意图识别）
+
+说天气相关的话，机器人自动识别意图并查天气（无需任何指令）：
+
+| 你说 | 机器人返回 |
+|---|---|
+| 北京天气怎么样 | 北京当前天气（温度/天气现象/风速/湿度） |
+| 深圳明天天气 | 明天预报（高温/低温/天气现象） |
+| 上海这周天气 | 近 3 天预报 |
+| 现在几度 | 默认城市（`weather.default-city`，默认北京）当前温度 |
+
+天气数据源（`weather.*` 配置）：
+- **和风天气（推荐，国内准确）**：到 https://dev.qweather.com 注册 → 控制台「项目管理」创建项目 → 添加 Key（免费版即可），把 Key 填入本地 `application-secret.properties` 的 `weather.api-key=`（或环境变量 `QWEATHER_API_KEY`）
+- **Open-Meteo（免 Key 兜底）**：`weather.provider=open-meteo`，或 qweather 未配置 Key 时自动回退，同样支持中文城市名
+
+自测：`GET /wechat/test/weather?city=北京&when=tomorrow`（when: today/tomorrow/dayafter/week）
+
+### 5. 语音回复（可选，需要本地编码工具）
 
 > ⚠️ **重要说明**：微信官方已调整协议，Bot 通过 `sendVoice` 发送的**语音气泡不再渲染**（接口正常返回，但用户看不到，见 [SDK issue #13](https://github.com/lith0924/wechat-ilink-sdk-java/issues/13)）。
 > 因此本项目默认把 TTS 音频作为 **mp3/wav 音频文件**发送（微信端可直接点开播放），`llm.voice-bubble-enabled=true` 可尝试 SILK 气泡（当前不显示）。

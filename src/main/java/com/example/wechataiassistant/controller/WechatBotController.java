@@ -1,9 +1,11 @@
 package com.example.wechataiassistant.controller;
 
 import com.example.wechataiassistant.service.WechatBotService;
+import com.example.wechataiassistant.service.ai.TimeQualifier;
 import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmProperties;
+import com.example.wechataiassistant.service.weather.WeatherService;
 import com.example.wechataiassistant.voice.VoiceEncoder;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
 import java.io.IOException;
@@ -43,12 +45,19 @@ public class WechatBotController {
     private final LlmClient llm;
     private final LlmProperties llmProps;
     private final VoiceEncoder voiceEncoder;
+    private final WeatherService weatherService;
 
-    public WechatBotController(WechatBotService bot, LlmClient llm, LlmProperties llmProps, VoiceEncoder voiceEncoder) {
+    public WechatBotController(
+        WechatBotService bot,
+        LlmClient llm,
+        LlmProperties llmProps,
+        VoiceEncoder voiceEncoder,
+        WeatherService weatherService) {
         this.bot = bot;
         this.llm = llm;
         this.llmProps = llmProps;
         this.voiceEncoder = voiceEncoder;
+        this.weatherService = weatherService;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -209,6 +218,27 @@ public class WechatBotController {
                 "base64", Base64.getEncoder().encodeToString(bytes));
         } catch (Exception e) {
             log.error("测试TTS失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 单独验证天气查询（城市 + 时间限定）。 */
+    @GetMapping("/test/weather")
+    public Map<String, Object> testWeather(
+        @RequestParam(defaultValue = "北京") String city,
+        @RequestParam(defaultValue = "today") String when) {
+        try {
+            TimeQualifier tq =
+                switch (when.toLowerCase()) {
+                    case "tomorrow", "明天" -> TimeQualifier.TOMORROW;
+                    case "dayafter", "后天" -> TimeQualifier.DAY_AFTER;
+                    case "week", "本周" -> TimeQualifier.WEEK;
+                    default -> TimeQualifier.TODAY;
+                };
+            WeatherService.WeatherResult r = weatherService.getWeather(city, tq);
+            return Map.of("ok", true, "city", r.city(), "summary", r.summary());
+        } catch (Exception e) {
+            log.error("测试天气失败", e);
             return Map.of("ok", false, "error", e.getMessage());
         }
     }

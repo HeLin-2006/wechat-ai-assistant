@@ -6,6 +6,7 @@ import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmException;
 import com.example.wechataiassistant.service.llm.LlmProperties;
+import com.example.wechataiassistant.service.weather.WeatherService;
 import com.example.wechataiassistant.voice.VoiceEncodeException;
 import com.example.wechataiassistant.voice.VoiceEncoder;
 import com.github.wechat.ilink.sdk.core.listener.OnMessageListener;
@@ -47,6 +48,8 @@ public class AiMessageHandler implements OnMessageListener {
     private final ConversationMemory memory;
     private final VoiceEncoder voiceEncoder;
     private final WechatProperties wechatProps;
+    private final IntentRecognizer intentRecognizer;
+    private final WeatherService weatherService;
 
     /**
      * 已处理过的消息 id 集合，防止网关重复投递或回声导致重复回复。
@@ -72,13 +75,17 @@ public class AiMessageHandler implements OnMessageListener {
             LlmProperties props,
             ConversationMemory memory,
             VoiceEncoder voiceEncoder,
-            WechatProperties wechatProps) {
+            WechatProperties wechatProps,
+            IntentRecognizer intentRecognizer,
+            WeatherService weatherService) {
         this.bot = bot;
         this.llm = llm;
         this.props = props;
         this.memory = memory;
         this.voiceEncoder = voiceEncoder;
         this.wechatProps = wechatProps;
+        this.intentRecognizer = intentRecognizer;
+        this.weatherService = weatherService;
     }
 
     @Override
@@ -178,69 +185,75 @@ public class AiMessageHandler implements OnMessageListener {
             }
         }
 
-        // 指令处理
-        if ("/help".equalsIgnoreCase(raw) || "帮助".equals(raw)) {
-            log.info("📖 处理帮助指令");
-            safeSendText(from, HELP);
-            return;
-        }
-        if ("/clear".equalsIgnoreCase(raw) || "清空上下文".equals(raw)) {
-            log.info("🧹 清空上下文");
-            memory.clear(from);
-            bot.clearContext(from);
-            safeSendText(from, "好的，已清空我们的对话上下文～");
-            return;
-        }
-        // 语音模式开关（必须先于 /语音 前缀匹配，避免 /语音模式 被当作朗读内容）
-        if ("/语音模式".equals(raw) || "/voice-mode".equalsIgnoreCase(raw)) {
-            if (voiceModeUsers.remove(from)) {
-                safeSendText(from, "语音模式已关闭，之后回复只发文字。");
-            } else {
-                voiceModeUsers.add(from);
-                safeSendText(from, "语音模式已开启：之后的回复都会同时发一条语音。发送「/语音模式」可关闭。");
+        // 意图识别路由
+        IntentResult intent = intentRecognizer.recognize(raw);
+        log.info("🎯 意图: {} city={} time={} payload='{}'",
+                intent.intent(), intent.city(), intent.time(), intent.payload());
+        switch (intent.intent()) {
+            case WEATHER -> {
+                log.info("🌤️ 处理天气查询: city={} time={}", intent.city(), intent.time());
+                try {
+                    WeatherService.WeatherResult w = weatherService.getWeather(intent.city(), intent.time());
+                    bot.sendTextWithTyping(from, w.summary(), 400);
+                } catch (WeatherService.WeatherException e) {
+                    log.warn("天气查询失败: {}", e.getMessage());
+                    safeSendText(from, "天气查询失败：" + e.getMessage() + "（试试发「北京天气怎么样」）");
+                }
+                return;
             }
-            return;
-        }
-        if ("/语音开".equals(raw) || "/voice-on".equalsIgnoreCase(raw)) {
-            voiceModeUsers.add(from);
-            safeSendText(from, "语音模式已开启 ✅");
-            return;
-        }
-        if ("/语音关".equals(raw) || "/voice-off".equalsIgnoreCase(raw)) {
-            voiceModeUsers.remove(from);
-            safeSendText(from, "语音模式已关闭 ✅");
-            return;
-        }
-
-        log.info("🧪 图片前缀配置: {}", props.getImagePrefixes());
-        log.info("🧪 当前消息: [{}]", raw);
-        String imagePrompt = matchImagePrefix(raw);
-
-        if (imagePrompt != null) {
-            log.info("🖼️ 处理图片生成: {}", imagePrompt);
-            handleImageGeneration(from, imagePrompt);
-            return;
-        }
-
-        String voiceSpeak = matchPrefix(raw, props.getVoicePrefixes());
-
-        log.info("🎙️ 语音前缀配置: {}", props.getVoicePrefixes());
-        log.info("🎙️ voiceSpeak: [{}]", voiceSpeak);
-        log.info("🎙️ voiceMode: {}", voiceModeUsers.contains(from));
-        log.info("🎙️ voiceReplyEnabled: {}", props.isVoiceReplyEnabled());
-
-        boolean wantVoice =
-                voiceSpeak != null
-                        || voiceModeUsers.contains(from)
-                        || props.isVoiceReplyEnabled();
-        if (wantVoice) {
-            String reply;
-            if (voiceSpeak != null && !voiceSpeak.isBlank()) {
-                reply = voiceSpeak;
-            } else {
-                reply = askLlm(from, content, image);
+            case HELP -> {
+                log.info("📖 处理帮助指令");
+                safeSendText(from, HELP);
+                return;
             }
-            handleVoiceReply(from, reply);
+            case CLEAR -> {
+                log.info("🧹 清空上下文");
+                memory.clear(from);
+                bot.clearContext(from);
+                safeSendText(from, "好的，已清空我们的对话上下文～");
+                return;
+            }
+            case VOICE_MODE -> {
+                String cmd = intent.payload();
+                if (cmd.equals("/语音模式") || cmd.equalsIgnoreCase("/voice-mode")) {
+                    if (voiceModeUsers.remove(from)) {
+                        safeSendText(from, "语音模式已关闭，之后回复只发文字。");
+                    } else {
+                        voiceModeUsers.add(from);
+                        safeSendText(from, "语音模式已开启：之后的回复都会同时发一条语音。发送「/语音模式」可关闭。");
+                    }
+                } else if (cmd.equals("/语音开") || cmd.equalsIgnoreCase("/voice-on")) {
+                    voiceModeUsers.add(from);
+                    safeSendText(from, "语音模式已开启 ✅");
+                } else {
+                    voiceModeUsers.remove(from);
+                    safeSendText(from, "语音模式已关闭 ✅");
+                }
+                return;
+            }
+            case IMAGE_GEN -> {
+                log.info("🖼️ 处理图片生成: {}", intent.payload());
+                handleImageGeneration(from, intent.payload());
+                return;
+            }
+            case VOICE_SPEAK -> {
+                String speak;
+                if (intent.payload() != null && !intent.payload().isBlank()) {
+                    speak = intent.payload();
+                } else {
+                    speak = askLlm(from, content, image);
+                }
+                handleVoiceReply(from, speak);
+                return;
+            }
+            case CHAT -> {
+                // 下方统一走 LLM
+            }
+        }
+
+        // 语音模式用户：文本回复 + 语音
+        if (voiceModeUsers.contains(from) || props.isVoiceReplyEnabled()) {
+            handleVoiceReply(from, askLlm(from, content, image));
             return;
         }
 
@@ -251,42 +264,6 @@ public class AiMessageHandler implements OnMessageListener {
         log.info("📤 准备发送回复到 {}", from);
         bot.sendTextWithTyping(from, reply, 500);
         log.info("✅ 回复已发送");
-    }
-
-    private String matchImagePrefix(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-
-        String text = raw.trim();
-
-        // 英文指令
-        String prompt = matchPrefix(text, List.of("/img", "/image"));
-        if (prompt != null) {
-            return prompt;
-        }
-
-        // 中文指令
-        String[] prefixes = {
-                "生成一张",
-                "生成图片",
-                "帮我生成",
-                "帮我画",
-                "生成",
-                "画"
-        };
-
-        for (String prefix : prefixes) {
-            if (text.startsWith(prefix)) {
-                String rest = text.substring(prefix.length()).trim();
-
-                if (!rest.isEmpty()) {
-                    return rest;
-                }
-            }
-        }
-
-        return null;
     }
 
     private String askLlm(String from, String content, byte[] image) {
@@ -439,23 +416,6 @@ public class AiMessageHandler implements OnMessageListener {
             sb.append("（语音内容）").append(voiceText.trim());
         }
         return sb.toString().trim();
-    }
-
-    private String matchPrefix(String raw, List<String> prefixes) {
-        if (raw == null || prefixes == null) {
-            return null;
-        }
-        for (String p : prefixes) {
-            String prefix = p.trim();
-            if (prefix.isEmpty()) {
-                continue;
-            }
-            if (raw.startsWith(prefix)) {
-                String rest = raw.substring(prefix.length()).trim();
-                return rest;
-            }
-        }
-        return null;
     }
 
     private void safeSendText(String to, String text) {
