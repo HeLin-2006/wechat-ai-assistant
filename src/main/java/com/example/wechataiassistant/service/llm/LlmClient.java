@@ -85,6 +85,59 @@ public class LlmClient {
         return chatInternal(visionClient, props.resolveVisionModel(), messages, imageDataUri);
     }
 
+    // ------------------------------------------------------------------
+    // 工具调用（Function Calling）
+    // ------------------------------------------------------------------
+
+    /** LLM 的一次工具调用请求。 */
+    public record ToolCall(String id, String name, String arguments) {}
+
+    /** 对话结果：要么是最终文本，要么是需要执行的一组工具调用。 */
+    public record ChatResult(String content, List<ToolCall> toolCalls) {
+        public boolean hasToolCalls() {
+            return toolCalls != null && !toolCalls.isEmpty();
+        }
+    }
+
+    /**
+     * 带工具（Function Calling）的对话。
+     *
+     * @param messages 完整的消息列表（role=user/assistant/tool 均可，含 tool_calls 回传）
+     * @param toolsJson 工具描述数组的 JSON 字符串（由 ToolRegistry 生成）
+     * @return 可能是最终回答，也可能是待执行的工具调用
+     */
+    public ChatResult chatWithTools(List<Map<String, Object>> messages, String toolsJson) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", props.getChatModel());
+        body.put("messages", messages);
+        try {
+            body.put("tools", mapper.readValue(toolsJson, List.class));
+        } catch (Exception e) {
+            throw new LlmException("解析 tools 参数失败", e);
+        }
+        body.put("temperature", props.getChatTemperature());
+        body.put("max_tokens", props.getChatMaxTokens());
+
+        String json = post(chatClient, "/chat/completions", body);
+        try {
+            JsonNode msg = mapper.readTree(json).path("choices").path(0).path("message");
+            String content = msg.path("content").asText(null);
+
+            List<ToolCall> calls = new ArrayList<>();
+            for (JsonNode tc : msg.path("tool_calls")) {
+                String id = tc.path("id").asText("");
+                String name = tc.path("function").path("name").asText("");
+                String arguments = tc.path("function").path("arguments").asText("{}");
+                calls.add(new ToolCall(id, name, arguments));
+            }
+            return new ChatResult(content, calls);
+        } catch (LlmException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new LlmException("解析工具调用响应失败: " + e.getMessage(), e);
+        }
+    }
+
     private String chatInternal(
         RestClient client, String model, List<ChatMessage> messages, String imageDataUri) {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -113,7 +166,8 @@ public class LlmClient {
         }
         body.put("messages", msgs);
         body.put("temperature", props.getChatTemperature());
-        body.put("max_tokens", props.getChatMaxTokens());
+        // 工具调用轮次涉及推理（reasoning）与工具结果回传，需要更大输出空间
+        body.put("max_tokens", Math.max(props.getChatMaxTokens(), 2048));
 
         String json = post(client, "/chat/completions", body);
         try {

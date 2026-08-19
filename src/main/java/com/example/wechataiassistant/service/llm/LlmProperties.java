@@ -81,6 +81,9 @@ public class LlmProperties {
     /** 每用户保留的上下文轮数（条消息数）。 */
     private int contextWindow = 10;
 
+    /** 工具调用（Function Calling）最大轮数，防止死循环。 */
+    private int toolMaxRounds = 4;
+
     /** 触发图片生成的文本前缀（逗号分隔），例如「/img 一只猫」「画一只猫」。 */
     private List<String> imagePrefixes = new ArrayList<>(List.of("/img", "/image", "画", "生成图片"));
 
@@ -384,6 +387,14 @@ public class LlmProperties {
 
     public void setContextWindow(int contextWindow) {
         this.contextWindow = contextWindow;
+    }
+
+    public int getToolMaxRounds() {
+        return toolMaxRounds;
+    }
+
+    public void setToolMaxRounds(int toolMaxRounds) {
+        this.toolMaxRounds = toolMaxRounds;
     }
 
     public List<String> getImagePrefixes() {

@@ -7,6 +7,9 @@ import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmException;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.tool.MessageSender;
+import com.example.wechataiassistant.service.tool.ToolCallService;
+import com.example.wechataiassistant.service.tool.ToolContext;
 import com.example.wechataiassistant.voice.VoiceEncodeException;
 import com.example.wechataiassistant.voice.VoiceEncoder;
 import com.github.wechat.ilink.sdk.core.listener.OnMessageListener;
@@ -50,6 +53,7 @@ public class AiMessageHandler implements OnMessageListener {
     private final WechatProperties wechatProps;
     private final IntentRecognizer intentRecognizer;
     private final WeatherService weatherService;
+    private final ToolCallService toolCallService;
 
     /**
      * 已处理过的消息 id 集合，防止网关重复投递或回声导致重复回复。
@@ -77,7 +81,8 @@ public class AiMessageHandler implements OnMessageListener {
             VoiceEncoder voiceEncoder,
             WechatProperties wechatProps,
             IntentRecognizer intentRecognizer,
-            WeatherService weatherService) {
+            WeatherService weatherService,
+            ToolCallService toolCallService) {
         this.bot = bot;
         this.llm = llm;
         this.props = props;
@@ -86,6 +91,7 @@ public class AiMessageHandler implements OnMessageListener {
         this.wechatProps = wechatProps;
         this.intentRecognizer = intentRecognizer;
         this.weatherService = weatherService;
+        this.toolCallService = toolCallService;
     }
 
     @Override
@@ -279,14 +285,33 @@ public class AiMessageHandler implements OnMessageListener {
         List<ChatMessage> messages = new ArrayList<>(memory.history(from));
         messages.add(ChatMessage.user(content));
 
-        log.info("📤 调用 llm.chat/chatWithVision...");
         String reply;
         if (image != null) {
+            // 图片理解：走视觉模型（不带工具）
             String imageDataUri =
                     "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(image);
             reply = llm.chatWithVision(messages, imageDataUri);
         } else {
-            reply = llm.chat(messages);
+            // 文本对话：走工具调用循环（LLM 可自主决定调用天气/时间/生图等工具）
+            ToolContext ctx =
+                    new ToolContext(
+                            from,
+                            new MessageSender() {
+                                @Override
+                                public void sendText(String text) {
+                                    safeSendText(from, text);
+                                }
+
+                                @Override
+                                public void sendImage(byte[] imageBytes, String fileName, String caption) {
+                                    try {
+                                        bot.sendImage(from, imageBytes, fileName, caption);
+                                    } catch (Exception e) {
+                                        log.error("工具发送图片失败", e);
+                                    }
+                                }
+                            });
+            reply = toolCallService.respond(from, content, ctx);
         }
         log.info("📥 LLM 返回: {}", reply);
 

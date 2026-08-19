@@ -44,15 +44,13 @@ public class WechatBotService implements AutoCloseable {
         this.props = props;
         this.mapper = mapper;
 
-        ILinkConfig config =
-            ILinkConfig.builder()
+        ILinkConfig config = ILinkConfig.builder()
                 .heartbeatEnabled(true)
                 .heartbeatIntervalMs(props.getHeartbeatIntervalMs())
                 .loginTimeoutMs(props.getLoginTimeoutMs())
                 .build();
 
-        this.client =
-            ILinkClient.builder()
+        this.client = ILinkClient.builder()
                 .config(config)
                 .resumeContext(loadSession())
                 .onLogin(

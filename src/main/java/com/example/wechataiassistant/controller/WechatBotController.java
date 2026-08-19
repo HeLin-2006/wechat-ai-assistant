@@ -6,6 +6,8 @@ import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.tool.ToolCallService;
+import com.example.wechataiassistant.service.tool.ToolContext;
 import com.example.wechataiassistant.voice.VoiceEncoder;
 import com.github.wechat.ilink.sdk.core.model.WeixinMessage;
 import java.io.IOException;
@@ -46,18 +48,21 @@ public class WechatBotController {
     private final LlmProperties llmProps;
     private final VoiceEncoder voiceEncoder;
     private final WeatherService weatherService;
+    private final ToolCallService toolCallService;
 
     public WechatBotController(
         WechatBotService bot,
         LlmClient llm,
         LlmProperties llmProps,
         VoiceEncoder voiceEncoder,
-        WeatherService weatherService) {
+        WeatherService weatherService,
+        ToolCallService toolCallService) {
         this.bot = bot;
         this.llm = llm;
         this.llmProps = llmProps;
         this.voiceEncoder = voiceEncoder;
         this.weatherService = weatherService;
+        this.toolCallService = toolCallService;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -239,6 +244,19 @@ public class WechatBotController {
             return Map.of("ok", true, "city", r.city(), "summary", r.summary());
         } catch (Exception e) {
             log.error("测试天气失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 验证工具调用（Function Calling）：LLM 自主决定调用天气/时间等工具。 */
+    @GetMapping("/test/tools")
+    public Map<String, Object> testTools(@RequestParam(defaultValue = "现在几点了？") String text) {
+        try {
+            ToolContext ctx = new ToolContext("test-user", null);
+            String reply = toolCallService.respond("test-user", text, ctx);
+            return Map.of("ok", true, "reply", reply);
+        } catch (Exception e) {
+            log.error("测试工具调用失败", e);
             return Map.of("ok", false, "error", e.getMessage());
         }
     }

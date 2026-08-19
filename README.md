@@ -163,3 +163,23 @@ src/main/java/com/example/wechataiassistant/
 - 本项目连接的是微信官方 iLink Bot 协议（`https://ilinkai.weixin.qq.com`），请遵守微信平台规范，勿用于骚扰、营销等违规场景。
 - `wechat-session.json` 含登录凭据，已加入 `.gitignore`，请勿提交。
 - API Key 请通过环境变量注入，切勿写死在配置里提交到仓库。
+
+### 工具调用（Function Calling）🧰
+
+大模型在对话中可**自主决定调用工具**（OpenAI 兼容 `tools` 协议）：
+
+| 工具 | 参数（JSON Schema） | 作用 |
+|---|---|---|
+| `get_current_time` | 无 | 返回当前日期时间与星期 |
+| `get_weather` | `city`(可选) / `when`(枚举 today/tomorrow/dayafter/week) | 查天气（复用天气服务） |
+| `generate_image` | `prompt`(必填) | 生成图片并直接发给用户 |
+
+工作流程（`ToolCallService` 实现，最多 `llm.tool-max-rounds` 轮）：
+```
+用户消息 + 工具描述 → LLM
+  ├─ 直接回答 → 返回
+  └─ 要求调用工具 → 执行工具 → 结果回传 → LLM → 直到给出最终回答
+```
+
+自测：`GET /wechat/test/tools?text=现在几点了`；微信里直接问「现在几点了」「北京多少度」「画一只猫」即可触发。
+新增工具：实现 `service/tool/Tool` 接口（name/description/parametersSchema/execute），加 `@Component` 即可自动注册。
