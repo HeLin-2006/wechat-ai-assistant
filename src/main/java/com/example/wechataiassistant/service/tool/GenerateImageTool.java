@@ -54,7 +54,7 @@ public class GenerateImageTool implements Tool {
     public String execute(Map<String, Object> args, ToolContext ctx) {
         String prompt = args.get("prompt") == null ? "" : String.valueOf(args.get("prompt")).trim();
         if (prompt.isEmpty()) {
-            return "缺少 prompt 参数";
+            throw new IllegalArgumentException("缺少必填参数 prompt（图片内容描述）");
         }
         if (ctx == null || !ctx.hasSender()) {
             return "当前环境不支持发送图片";

@@ -62,4 +62,25 @@ class ToolRegistryTest {
         String out = r.execute(new LlmClient.ToolCall("id4", "get_weather", "{\"city\":\"北京\"}"), null);
         assertTrue(out.contains("失败") || out.contains("异常"));
     }
+
+    @Test
+    void chainToolsParameterValidation() {
+        // 链式工具的参数校验在调用网络前触发
+        ToolRegistry r1 = registry(List.of(new GetCityCoordinatesTool(null)));
+        String out1 = r1.execute(new LlmClient.ToolCall("c1", "get_city_coordinates", "{}"), null);
+        assertTrue(out1.contains("参数错误"), "缺 city 应报参数错误: " + out1);
+
+        ToolRegistry r2 = registry(List.of(new GetSunriseSunsetTool(null)));
+        String out2 = r2.execute(new LlmClient.ToolCall("c2", "get_sunrise_sunset", "{\"latitude\":999,\"longitude\":121}"), null);
+        assertTrue(out2.contains("参数错误") || out2.contains("超出合法范围"), "非法坐标应报参数错误: " + out2);
+    }
+
+    @Test
+    void schemaHasRequiredForChainTools() throws Exception {
+        ToolRegistry r = registry(List.of(new GetSunriseSunsetTool(null)));
+        JsonNode fn = mapper.readTree(r.toolsJson()).get(0).path("function");
+        JsonNode required = fn.path("parameters").path("required");
+        assertTrue(required.toString().contains("latitude"), "latitude 应为必填: " + required);
+        assertTrue(required.toString().contains("longitude"), "longitude 应为必填: " + required);
+    }
 }

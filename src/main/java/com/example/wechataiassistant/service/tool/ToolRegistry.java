@@ -34,6 +34,9 @@ public class ToolRegistry {
         return List.copyOf(tools.values());
     }
 
+    /** 工具描述缓存：工具集在运行时不变，只需序列化一次。 */
+    private volatile String cachedToolsJson;
+
     /**
      * 生成 LLM 请求用的 tools 参数（OpenAI 兼容格式）：
      * <pre>
@@ -41,6 +44,10 @@ public class ToolRegistry {
      * </pre>
      */
     public String toolsJson() {
+        String cached = cachedToolsJson;
+        if (cached != null) {
+            return cached;
+        }
         List<Map<String, Object>> arr =
             tools.values().stream()
                 .map(
@@ -56,7 +63,9 @@ public class ToolRegistry {
                     })
                 .toList();
         try {
-            return mapper.writeValueAsString(arr);
+            String json = mapper.writeValueAsString(arr);
+            cachedToolsJson = json;
+            return json;
         } catch (Exception e) {
             throw new IllegalStateException("生成 tools 参数失败", e);
         }
@@ -66,14 +75,20 @@ public class ToolRegistry {
     public String execute(LlmClient.ToolCall call, ToolContext ctx) {
         Tool tool = tools.get(call.name());
         if (tool == null) {
-            return "没有找到工具: " + call.name();
+            return "没有找到工具: " + call.name() + "，请不要编造工具结果，直接回答用户。";
         }
         try {
             Map<String, Object> args = parseArgs(call.arguments());
             return tool.execute(args, ctx);
+        } catch (IllegalArgumentException e) {
+            // 参数类错误：提示 LLM 修正参数或直接回答
+            log.warn("工具 {} 参数错误: {}", call.name(), e.getMessage());
+            return "工具 " + call.name() + " 参数错误: " + e.getMessage() + "（请修正参数后重试，或直接回答用户）";
         } catch (Exception e) {
+            // 系统类错误：提示 LLM 向用户说明并给替代建议
             log.error("工具 {} 执行失败", call.name(), e);
-            return "工具 " + call.name() + " 执行失败: " + e.getMessage();
+            return "工具 " + call.name() + " 执行失败: " + e.getMessage()
+                + "（请向用户说明暂时无法完成，并给出替代建议）";
         }
     }
 

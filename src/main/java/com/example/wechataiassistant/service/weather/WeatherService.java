@@ -28,10 +28,12 @@ public class WeatherService {
     private final WeatherProperties props;
     private final ObjectMapper mapper;
     private final RestClient client;
+    private final OpenMeteoClient openMeteo;
 
-    public WeatherService(WeatherProperties props, ObjectMapper mapper) {
+    public WeatherService(WeatherProperties props, ObjectMapper mapper, OpenMeteoClient openMeteo) {
         this.props = props;
         this.mapper = mapper;
+        this.openMeteo = openMeteo;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(10));
         factory.setReadTimeout(Duration.ofSeconds(20));
@@ -103,47 +105,37 @@ public class WeatherService {
     // ------------------------------------------------------------------
 
     private WeatherResult getOpenMeteo(String city, TimeQualifier when) {
-        JsonNode geo =
-            getJson("https://geocoding-api.open-meteo.com/v1/search?name="
-                + enc(city) + "&count=1&language=zh&format=json");
-        JsonNode r = geo.path("results").path(0);
-        if (r.isMissingNode()) {
-            throw new WeatherException("未找到城市: " + city);
-        }
-        String name = r.path("name").asText(city);
-        double lat = r.path("latitude").asDouble();
-        double lon = r.path("longitude").asDouble();
-
-        String url =
-            "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
-                + "&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m"
-                + "&daily=temperature_2m_max,temperature_2m_min,weather_code"
-                + "&timezone=Asia%2FShanghai&forecast_days=3";
-        JsonNode d = getJson(url);
+        OpenMeteoClient.GeocodeResult geo = openMeteo.geocode(city);
+        JsonNode d =
+            openMeteo.forecast(
+                geo.latitude(),
+                geo.longitude(),
+                "temperature_2m_max,temperature_2m_min,weather_code",
+                3);
         JsonNode current = d.path("current");
         JsonNode daily = d.path("daily");
 
         StringBuilder sb = new StringBuilder();
         if (when == TimeQualifier.TODAY) {
-            sb.append(name).append(" 现在：")
-                .append(wmoText(current.path("weather_code").asInt(-1))).append("，")
+            sb.append(geo.city()).append(" 现在：")
+                .append(OpenMeteoClient.wmoText(current.path("weather_code").asInt(-1))).append("，")
                 .append(current.path("temperature_2m").asDouble()).append("℃")
                 .append("，风速 ").append(current.path("wind_speed_10m").asDouble()).append(" km/h")
                 .append("，湿度 ").append(current.path("relative_humidity_2m").asInt(-1)).append("%");
         } else {
             int[] idx = indexFor(when);
-            sb.append(name).append(" 天气：");
+            sb.append(geo.city()).append(" 天气：");
             for (int i = 0; i < idx.length && i < daily.path("time").size(); i++) {
                 if (i > 0) {
                     sb.append("\n");
                 }
                 sb.append(dayLabel(idx[i]))
-                    .append(wmoText(daily.path("weather_code").get(idx[i]).asInt(-1))).append(" ")
+                    .append(OpenMeteoClient.wmoText(daily.path("weather_code").get(idx[i]).asInt(-1))).append(" ")
                     .append(daily.path("temperature_2m_min").get(idx[i]).asDouble()).append("~")
                     .append(daily.path("temperature_2m_max").get(idx[i]).asDouble()).append("℃");
             }
         }
-        return new WeatherResult(name, sb.toString());
+        return new WeatherResult(geo.city(), sb.toString());
     }
 
     /** 时间限定对应的预报下标。 */
@@ -162,33 +154,6 @@ public class WeatherService {
             case 1 -> "明天 ";
             case 2 -> "后天 ";
             default -> "";
-        };
-    }
-
-    /** WMO 天气代码 -> 中文描述。 */
-    private static String wmoText(int code) {
-        return switch (code) {
-            case 0 -> "晴";
-            case 1 -> "晴间多云";
-            case 2 -> "多云";
-            case 3 -> "阴";
-            case 45, 48 -> "雾";
-            case 51, 53, 55 -> "毛毛雨";
-            case 56, 57 -> "冻毛毛雨";
-            case 61 -> "小雨";
-            case 63 -> "中雨";
-            case 65 -> "大雨";
-            case 66, 67 -> "冻雨";
-            case 71 -> "小雪";
-            case 73 -> "中雪";
-            case 75 -> "大雪";
-            case 77 -> "雪粒";
-            case 80, 81 -> "阵雨";
-            case 82 -> "强阵雨";
-            case 85, 86 -> "阵雪";
-            case 95 -> "雷阵雨";
-            case 96, 99 -> "雷阵雨伴冰雹";
-            default -> "未知";
         };
     }
 

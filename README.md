@@ -173,6 +173,18 @@ src/main/java/com/example/wechataiassistant/
 | `get_current_time` | 无 | 返回当前日期时间与星期 |
 | `get_weather` | `city`(可选) / `when`(枚举 today/tomorrow/dayafter/week) | 查天气（复用天气服务） |
 | `generate_image` | `prompt`(必填) | 生成图片并直接发给用户 |
+| `get_city_coordinates` | `city`(必填) | 城市 → 经纬度（链式调用第一步） |
+| `get_sunrise_sunset` | `latitude`/`longitude`(必填) | 经纬度 → 今日日出日落（链式调用第二步） |
+
+**链式调用（多步工具）示例**：问「上海今天几点日出日落」→
+```
+第1轮: LLM 调用 get_city_coordinates(city=上海)
+      → 返回 latitude=31.2222, longitude=121.4581
+第2轮: LLM 调用 get_sunrise_sunset(latitude=31.2222, longitude=121.4581)  ← 参数来自上一步结果
+      → 返回 日出05:22 日落18:32
+第3轮: LLM 组织最终回答
+```
+`ToolCallService` 自动处理多轮往返（每轮工具结果作为 `role=tool` 消息回传，最多 `llm.tool-max-rounds` 轮），后续步骤的输入可直接依赖前一步输出。
 
 工作流程（`ToolCallService` 实现，最多 `llm.tool-max-rounds` 轮）：
 ```
@@ -181,5 +193,5 @@ src/main/java/com/example/wechataiassistant/
   └─ 要求调用工具 → 执行工具 → 结果回传 → LLM → 直到给出最终回答
 ```
 
-自测：`GET /wechat/test/tools?text=现在几点了`；微信里直接问「现在几点了」「北京多少度」「画一只猫」即可触发。
+自测：`GET /wechat/test/tools?text=现在几点了`；微信里直接问「现在几点了」「北京多少度」「上海日出时间」「画一只猫」即可触发。
 新增工具：实现 `service/tool/Tool` 接口（name/description/parametersSchema/execute），加 `@Component` 即可自动注册。
