@@ -1,7 +1,7 @@
 package com.example.wechataiassistant.service.weather;
 
 import java.time.Duration;
-import java.util.Locale;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -36,22 +36,98 @@ public class OpenMeteoClient {
         this.client = RestClient.builder().requestFactory(factory).build();
     }
 
-    /** 地理编码结果。 */
-    public record GeocodeResult(String city, double latitude, double longitude) {}
+    /** 地理编码结果（含时区，供预报使用）。 */
+    public record GeocodeResult(String city, double latitude, double longitude, String timezone) {}
 
-    /** 城市名 → 经纬度。 */
+    /** 常见国际城市的中文名 → 英文名映射（Open-Meteo 对部分中文名支持差）。 */
+    private static final Map<String, String> INTL_CITY_MAP =
+        Map.ofEntries(
+            Map.entry("纽约", "New York"),
+            Map.entry("东京", "Tokyo"),
+            Map.entry("巴黎", "Paris"),
+            Map.entry("伦敦", "London"),
+            Map.entry("悉尼", "Sydney"),
+            Map.entry("柏林", "Berlin"),
+            Map.entry("莫斯科", "Moscow"),
+            Map.entry("首尔", "Seoul"),
+            Map.entry("新加坡", "Singapore"),
+            Map.entry("曼谷", "Bangkok"),
+            Map.entry("迪拜", "Dubai"),
+            Map.entry("多伦多", "Toronto"),
+            Map.entry("旧金山", "San Francisco"),
+            Map.entry("洛杉矶", "Los Angeles"),
+            Map.entry("芝加哥", "Chicago"),
+            Map.entry("罗马", "Rome"),
+            Map.entry("马德里", "Madrid"),
+            Map.entry("阿姆斯特丹", "Amsterdam"),
+            Map.entry("维也纳", "Vienna"),
+            Map.entry("开罗", "Cairo"),
+            Map.entry("伊斯坦布尔", "Istanbul"),
+            Map.entry("孟买", "Mumbai"),
+            Map.entry("圣保罗", "Sao Paulo"),
+            Map.entry("墨西哥城", "Mexico City"));
+
+    /**
+     * 城市名 → 经纬度（带回退链，提高命中率）：
+     * <ol>
+     *   <li>直接按原名查询</li>
+     *   <li>国际城市映射表（纽约→New York，东京→Tokyo，避免解析到同名小城）</li>
+     *   <li>去"市"前缀取区县名（上海浦东新区→浦东新区）</li>
+     *   <li>取市级前缀兜底（北京朝阳区→北京，杭州市西湖区→杭州）</li>
+     * </ol>
+     */
     public GeocodeResult geocode(String city) {
-        JsonNode r =
-            getJson(GEOCODE_URL + "?name=" + enc(city) + "&count=1&language=zh&format=json")
-                .path("results")
-                .path(0);
-        if (r.isMissingNode()) {
-            throw new WeatherService.WeatherException("未找到城市: " + city);
+        String original = city;
+        String[] candidates = {original};
+
+        if (city.length() > 2 && (city.endsWith("区") || city.endsWith("县") || city.endsWith("镇"))) {
+            int cityIdx = city.indexOf("市");
+            if (cityIdx > 0) {
+                // 上海浦东新区 -> 浦东新区；杭州市西湖区 -> 西湖区 或 杭州
+                String district = city.substring(cityIdx + 1);
+                String cityPart = city.substring(0, cityIdx);
+                candidates = new String[] {original, district, cityPart};
+            } else if (city.length() >= 4) {
+                // 北京朝阳区 -> 北京（取前两个字的市级兜底）
+                candidates = new String[] {original, city.substring(0, 2)};
+            }
         }
+
+        String intl = INTL_CITY_MAP.get(original);
+        if (intl != null) {
+            GeocodeResult r = search(original, intl, "en");
+            if (r != null) {
+                return r;
+            }
+        }
+
+        for (String c : candidates) {
+            GeocodeResult r = search(c, null, "zh");
+            if (r != null) {
+                return r;
+            }
+        }
+
+        throw new WeatherService.WeatherException(
+            "未找到城市: " + original
+                + "（试试「北京」「上海」等常见城市名；配置和风天气 Key 可支持更细的区县查询）");
+    }
+
+    /** 单次搜索：给定了英文名就直接查英文名（国际城市，避免中文名在英文模式下排到同名小城）；否则查中文名。 */
+    private GeocodeResult search(String nameZh, String nameEn, String lang) {
+        String query = (nameEn != null && !nameEn.isBlank()) ? nameEn : nameZh;
+        JsonNode results =
+            getJson(GEOCODE_URL + "?name=" + enc(query) + "&count=3&language=" + lang + "&format=json")
+                .path("results");
+        if (results.isMissingNode() || results.isEmpty()) {
+            return null;
+        }
+        JsonNode first = results.get(0);
         return new GeocodeResult(
-            r.path("name").asText(city),
-            r.path("latitude").asDouble(),
-            r.path("longitude").asDouble());
+            first.path("name").asText(nameZh),
+            first.path("latitude").asDouble(),
+            first.path("longitude").asDouble(),
+            first.path("timezone").asText("Asia/Shanghai"));
     }
 
     /**
@@ -61,13 +137,20 @@ public class OpenMeteoClient {
      * @return 响应 JSON（含 current / daily）
      */
     public JsonNode forecast(double latitude, double longitude, String dailyFields, int forecastDays) {
+        return forecast(latitude, longitude, dailyFields, forecastDays, "Asia/Shanghai");
+    }
+
+    /** 按经纬度查预报，可指定时区（外国城市用当地时区，保证日出日落/日期正确）。 */
+    public JsonNode forecast(
+        double latitude, double longitude, String dailyFields, int forecastDays, String timezone) {
+        String tz = (timezone == null || timezone.isBlank()) ? "Asia/Shanghai" : timezone;
         String url =
             FORECAST_URL
                 + "?latitude=" + latitude
                 + "&longitude=" + longitude
                 + "&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m"
                 + "&daily=" + dailyFields
-                + "&timezone=Asia%2FShanghai"
+                + "&timezone=" + enc(tz)
                 + "&forecast_days=" + forecastDays;
         return getJson(url);
     }

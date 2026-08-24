@@ -37,7 +37,7 @@ public class IntentRecognizer {
 
     /** 城市提取后需要剔除的残留词。 */
     private static final Pattern CITY_TRIM =
-        Pattern.compile("怎么样|如何|什么|情况|怎样|预报|天气|帮我|请问|一下|看看|看下|现在|目前|现在|这边");
+        Pattern.compile("怎么样|如何|什么|情况|怎样|预报|天气|帮我|请问|一下|看看|看下|现在|目前|这边|这里|我家|本地");
 
     public IntentResult recognize(String raw) {
         if (raw == null || raw.isBlank()) {

@@ -2,6 +2,7 @@ package com.example.wechataiassistant.service.weather;
 
 import com.example.wechataiassistant.service.ai.TimeQualifier;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,9 +43,9 @@ public class WeatherService {
 
     public record WeatherResult(String city, String summary) {}
 
-    /** 查询天气。city 为空时使用默认城市。 */
+    /** 查询天气。city 为空或为占位词（这里/我家等）时使用默认城市。 */
     public WeatherResult getWeather(String city, TimeQualifier when) {
-        String c = (city == null || city.isBlank()) ? props.getDefaultCity() : city.trim();
+        String c = normalizeCity(city);
         boolean useQWeather = "qweather".equalsIgnoreCase(props.getProvider())
             && props.getApiKey() != null
             && !props.getApiKey().isBlank();
@@ -56,6 +57,18 @@ public class WeatherService {
             }
         }
         return getOpenMeteo(c, when);
+    }
+
+    /** 把空值/占位词（这里、我家、本地等）归一为默认城市。 */
+    private String normalizeCity(String city) {
+        if (city == null || city.isBlank()) {
+            return props.getDefaultCity();
+        }
+        String t = city.trim();
+        if (List.of("这里", "这边", "我家", "本地", "now", "here").contains(t)) {
+            return props.getDefaultCity();
+        }
+        return t;
     }
 
     // ------------------------------------------------------------------
@@ -111,7 +124,8 @@ public class WeatherService {
                 geo.latitude(),
                 geo.longitude(),
                 "temperature_2m_max,temperature_2m_min,weather_code",
-                3);
+                3,
+                geo.timezone());
         JsonNode current = d.path("current");
         JsonNode daily = d.path("daily");
 
