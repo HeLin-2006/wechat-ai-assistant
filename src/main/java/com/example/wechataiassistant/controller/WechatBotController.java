@@ -6,6 +6,9 @@ import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.rag.RagDocument;
+import com.example.wechataiassistant.service.rag.RagService;
+import com.example.wechataiassistant.service.skill.SkillService;
 import com.example.wechataiassistant.service.tool.ToolCallService;
 import com.example.wechataiassistant.service.tool.ToolContext;
 import com.example.wechataiassistant.voice.VoiceEncoder;
@@ -49,6 +52,8 @@ public class WechatBotController {
     private final VoiceEncoder voiceEncoder;
     private final WeatherService weatherService;
     private final ToolCallService toolCallService;
+    private final SkillService skillService;
+    private final RagService ragService;
 
     public WechatBotController(
         WechatBotService bot,
@@ -56,13 +61,17 @@ public class WechatBotController {
         LlmProperties llmProps,
         VoiceEncoder voiceEncoder,
         WeatherService weatherService,
-        ToolCallService toolCallService) {
+        ToolCallService toolCallService,
+        SkillService skillService,
+        RagService ragService) {
         this.bot = bot;
         this.llm = llm;
         this.llmProps = llmProps;
         this.voiceEncoder = voiceEncoder;
         this.weatherService = weatherService;
         this.toolCallService = toolCallService;
+        this.skillService = skillService;
+        this.ragService = ragService;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -257,6 +266,48 @@ public class WechatBotController {
             return Map.of("ok", true, "reply", reply);
         } catch (Exception e) {
             log.error("测试工具调用失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /** 验证技能（Skill）：关键词命中即确定性执行，不经过 LLM。 */
+    @GetMapping("/test/skill")
+    public Map<String, Object> testSkill(@RequestParam(defaultValue = "今天是什么节日") String text) {
+        try {
+            var reply = skillService.executeIfMatched(text, "test-user");
+            return Map.of("ok", true, "matched", reply.isPresent(), "reply", reply.orElse("（未命中任何技能）"));
+        } catch (Exception e) {
+            log.error("测试技能失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /**
+     * RAG 开关对比测试：同一问题分别用「关闭 RAG」和「开启 RAG」回答，对比差异。
+     */
+    @GetMapping("/test/rag")
+    public Map<String, Object> testRag(@RequestParam(defaultValue = "机器人支持哪些功能？") String text) {
+        try {
+            // RAG 关闭：直接 LLM 回答
+            String ragOff = llm.chat(List.of(ChatMessage.user(text)));
+
+            // RAG 开启：检索知识库 → 增强 Prompt → LLM 回答
+            var docs = ragService.retrieve(text);
+            String ragOn;
+            if (docs.isEmpty()) {
+                ragOn = "（知识库未检索到相关内容，与关闭 RAG 相同）";
+            } else {
+                String enhanced = ragService.buildEnhancedPrompt(text, docs);
+                ragOn = llm.chat(List.of(ChatMessage.user(enhanced)));
+            }
+            return Map.of(
+                "ok", true,
+                "query", text,
+                "retrievedDocs", docs.stream().map(RagDocument::title).toList(),
+                "ragOff", ragOff,
+                "ragOn", ragOn);
+        } catch (Exception e) {
+            log.error("测试 RAG 失败", e);
             return Map.of("ok", false, "error", e.getMessage());
         }
     }

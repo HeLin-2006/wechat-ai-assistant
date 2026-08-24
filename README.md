@@ -195,3 +195,23 @@ src/main/java/com/example/wechataiassistant/
 
 自测：`GET /wechat/test/tools?text=现在几点了`；微信里直接问「现在几点了」「北京多少度」「上海日出时间」「画一只猫」即可触发。
 新增工具：实现 `service/tool/Tool` 接口（name/description/parametersSchema/execute），加 `@Component` 即可自动注册。
+
+### 技能（Skill）与 RAG 🧩📚
+
+消息路由优先级（`AiMessageHandler` CHAT 分支）：
+
+```
+用户消息
+ → ① Skill 关键词命中？ → 确定性执行（不经过 LLM）→ 回复
+ → ② RAG 关键词检索命中？ → 增强 Prompt → LLM 回复
+ → ③ 都没命中？ → LLM 兜底闲聊（含工具调用）
+```
+
+**技能（Skill）**：关键词触发、确定性输出。已有 `holiday_query`（节日查询）、`calculator`（四则运算）。
+- 示例：「今天是什么节日」「计算 3+5*2」
+- 新增技能：实现 `service/skill/Skill` 接口（name/description/keywords/execute），加 `@Component` 自动注册
+
+**RAG（极简关键词检索）**：内置知识库（机器人自身功能/配置/使用 FAQ），关键词 + Bigram 打分检索，命中则把文档注入 Prompt 再交给 LLM。
+- 配置：`rag.enabled`（开/关）、`rag.max-docs`、`rag.min-score`
+- 对比测试：`GET /wechat/test/rag?text=机器人支持哪些功能` 会同时返回关闭/开启 RAG 的两份回答
+- 自测：`GET /wechat/test/skill?text=今天是什么节日`

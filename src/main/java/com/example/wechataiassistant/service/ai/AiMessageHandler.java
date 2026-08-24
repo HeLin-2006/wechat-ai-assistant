@@ -7,6 +7,9 @@ import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmException;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.rag.RagDocument;
+import com.example.wechataiassistant.service.rag.RagService;
+import com.example.wechataiassistant.service.skill.SkillService;
 import com.example.wechataiassistant.service.tool.MessageSender;
 import com.example.wechataiassistant.service.tool.ToolCallService;
 import com.example.wechataiassistant.service.tool.ToolContext;
@@ -54,6 +57,8 @@ public class AiMessageHandler implements OnMessageListener {
     private final IntentRecognizer intentRecognizer;
     private final WeatherService weatherService;
     private final ToolCallService toolCallService;
+    private final SkillService skillService;
+    private final RagService ragService;
 
     /**
      * 已处理过的消息 id 集合，防止网关重复投递或回声导致重复回复。
@@ -82,7 +87,9 @@ public class AiMessageHandler implements OnMessageListener {
             WechatProperties wechatProps,
             IntentRecognizer intentRecognizer,
             WeatherService weatherService,
-            ToolCallService toolCallService) {
+            ToolCallService toolCallService,
+            SkillService skillService,
+            RagService ragService) {
         this.bot = bot;
         this.llm = llm;
         this.props = props;
@@ -92,6 +99,8 @@ public class AiMessageHandler implements OnMessageListener {
         this.intentRecognizer = intentRecognizer;
         this.weatherService = weatherService;
         this.toolCallService = toolCallService;
+        this.skillService = skillService;
+        this.ragService = ragService;
     }
 
     @Override
@@ -261,6 +270,33 @@ public class AiMessageHandler implements OnMessageListener {
         if (voiceModeUsers.contains(from) || props.isVoiceReplyEnabled()) {
             handleVoiceReply(from, askLlm(from, content, image));
             return;
+        }
+
+        // ============ 消息路由：Skill → RAG → LLM 兜底 ============
+        if (image == null) {
+            // ① Skill 优先：关键词命中 → 确定性执行，不经过 LLM
+            java.util.Optional<String> skillReply = skillService.executeIfMatched(content, from);
+            if (skillReply.isPresent()) {
+                String r = skillReply.get();
+                log.info("🧩 Skill 执行结果: {}", r);
+                bot.sendTextWithTyping(from, r, 300);
+                return;
+            }
+            // ② RAG 增强：关键词检索命中知识库 → 增强 Prompt → LLM
+            if (ragService.isEnabled()) {
+                List<RagDocument> docs = ragService.retrieve(content);
+                if (!docs.isEmpty()) {
+                    String enhanced = ragService.buildEnhancedPrompt(content, docs);
+                    log.info("📚 RAG 增强 Prompt 已构建（{} 篇文档），调用 LLM", docs.size());
+                    String r = llm.chat(List.of(ChatMessage.user(enhanced)));
+                    log.info("📚 RAG 增强回复: {}", r);
+                    memory.add(from, ChatMessage.user(content));
+                    memory.add(from, ChatMessage.assistant(r));
+                    bot.sendTextWithTyping(from, r, 500);
+                    return;
+                }
+            }
+            // ③ LLM 兜底：工具调用循环
         }
 
         log.info("💬 调用AI生成回复...");
