@@ -6,6 +6,8 @@ import com.example.wechataiassistant.service.llm.ChatMessage;
 import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.agent.AgentContext;
+import com.example.wechataiassistant.service.agent.RoadTripAgentService;
 import com.example.wechataiassistant.service.rag.RagDocument;
 import com.example.wechataiassistant.service.rag.RagService;
 import com.example.wechataiassistant.service.skill.SkillService;
@@ -54,6 +56,7 @@ public class WechatBotController {
     private final ToolCallService toolCallService;
     private final SkillService skillService;
     private final RagService ragService;
+    private final RoadTripAgentService roadTripAgentService;
 
     public WechatBotController(
         WechatBotService bot,
@@ -63,7 +66,8 @@ public class WechatBotController {
         WeatherService weatherService,
         ToolCallService toolCallService,
         SkillService skillService,
-        RagService ragService) {
+        RagService ragService,
+        RoadTripAgentService roadTripAgentService) {
         this.bot = bot;
         this.llm = llm;
         this.llmProps = llmProps;
@@ -72,6 +76,7 @@ public class WechatBotController {
         this.toolCallService = toolCallService;
         this.skillService = skillService;
         this.ragService = ragService;
+        this.roadTripAgentService = roadTripAgentService;
     }
 
     @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
@@ -253,6 +258,21 @@ public class WechatBotController {
             return Map.of("ok", true, "city", r.city(), "summary", r.summary());
         } catch (Exception e) {
             log.error("测试天气失败", e);
+            return Map.of("ok", false, "error", e.getMessage());
+        }
+    }
+
+    /**
+     * 长任务 Agent：一句话目标 → 完整路书成品（自主拆解/多工具/闭环）。
+     */
+    @GetMapping("/test/agent")
+    public Map<String, Object> testAgent(@RequestParam(defaultValue = "规划一次成都到稻城亚丁的自驾游") String goal) {
+        try {
+            AgentContext ctx = new AgentContext("test-user", null);
+            String doc = roadTripAgentService.execute(goal, ctx);
+            return Map.of("ok", true, "document", doc);
+        } catch (Exception e) {
+            log.error("测试 Agent 失败", e);
             return Map.of("ok", false, "error", e.getMessage());
         }
     }

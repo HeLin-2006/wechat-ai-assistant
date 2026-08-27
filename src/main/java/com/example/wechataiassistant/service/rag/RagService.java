@@ -23,11 +23,13 @@ public class RagService {
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
 
     private final RagProperties props;
-    private final KnowledgeBase knowledgeBase;
+    private final List<KnowledgeBase> knowledgeBases;
 
-    public RagService(RagProperties props, KnowledgeBase knowledgeBase) {
+    public RagService(RagProperties props, List<KnowledgeBase> knowledgeBases) {
         this.props = props;
-        this.knowledgeBase = knowledgeBase;
+        this.knowledgeBases = knowledgeBases;
+        log.info("已加载知识库 {} 个，共 {} 篇文档", knowledgeBases.size(),
+            knowledgeBases.stream().mapToInt(kb -> kb.all().size()).sum());
     }
 
     public boolean isEnabled() {
@@ -41,7 +43,8 @@ public class RagService {
         }
         String q = query.toLowerCase();
         List<RagDocument> hits =
-            knowledgeBase.all().stream()
+            knowledgeBases.stream()
+                .flatMap(kb -> kb.all().stream())
                 .map(doc -> new Scored(doc, score(doc, q)))
                 .filter(s -> s.score() >= props.getMinScore())
                 .sorted(Comparator.comparingInt(Scored::score).reversed())

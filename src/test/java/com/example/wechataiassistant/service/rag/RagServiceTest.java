@@ -18,7 +18,7 @@ class RagServiceTest {
         props.setEnabled(true);
         props.setMaxDocs(2);
         props.setMinScore(2);
-        rag = new RagService(props, new KnowledgeBase());
+        rag = new RagService(props, java.util.List.of(new BotKnowledgeBase()));
     }
 
     @Test
@@ -54,7 +54,7 @@ class RagServiceTest {
     void disabledRagReturnsEmptyWhenOff() {
         RagProperties off = new RagProperties();
         off.setEnabled(false);
-        RagService offRag = new RagService(off, new KnowledgeBase());
+        RagService offRag = new RagService(off, java.util.List.of(new BotKnowledgeBase()));
         assertFalse(offRag.isEnabled());
         // 检索函数本身仍可用（由路由层判断开关）
         assertTrue(offRag.retrieve("语音").stream().anyMatch(d -> d.title().contains("语音")));

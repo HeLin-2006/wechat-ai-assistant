@@ -4,6 +4,8 @@ package com.example.wechataiassistant.service.ai;
 public enum Intent {
     /** 天气查询（携带城市/时间） */
     WEATHER,
+    /** 长任务 Agent（一句话目标 → 自主规划执行，如「规划一次自驾游」） */
+    AGENT,
     /** 图片生成（/img、画…） */
     IMAGE_GEN,
     /** 语音朗读/语音回复（/语音、/voice） */

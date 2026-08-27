@@ -7,6 +7,8 @@ import com.example.wechataiassistant.service.llm.LlmClient;
 import com.example.wechataiassistant.service.llm.LlmException;
 import com.example.wechataiassistant.service.llm.LlmProperties;
 import com.example.wechataiassistant.service.weather.WeatherService;
+import com.example.wechataiassistant.service.agent.AgentContext;
+import com.example.wechataiassistant.service.agent.RoadTripAgentService;
 import com.example.wechataiassistant.service.rag.RagDocument;
 import com.example.wechataiassistant.service.rag.RagService;
 import com.example.wechataiassistant.service.skill.SkillService;
@@ -59,6 +61,7 @@ public class AiMessageHandler implements OnMessageListener {
     private final ToolCallService toolCallService;
     private final SkillService skillService;
     private final RagService ragService;
+    private final RoadTripAgentService roadTripAgentService;
 
     /**
      * 已处理过的消息 id 集合，防止网关重复投递或回声导致重复回复。
@@ -78,6 +81,15 @@ public class AiMessageHandler implements OnMessageListener {
                         return t;
                     });
 
+    /** Agent 专用线程：长任务（30~60s）不阻塞普通消息处理。 */
+    private final ExecutorService agentExecutor =
+            Executors.newSingleThreadExecutor(
+                    r -> {
+                        Thread t = new Thread(r, "agent-worker");
+                        t.setDaemon(true);
+                        return t;
+                    });
+
     public AiMessageHandler(
             @Lazy WechatBotService bot,
             LlmClient llm,
@@ -89,7 +101,8 @@ public class AiMessageHandler implements OnMessageListener {
             WeatherService weatherService,
             ToolCallService toolCallService,
             SkillService skillService,
-            RagService ragService) {
+            RagService ragService,
+            RoadTripAgentService roadTripAgentService) {
         this.bot = bot;
         this.llm = llm;
         this.props = props;
@@ -101,6 +114,7 @@ public class AiMessageHandler implements OnMessageListener {
         this.toolCallService = toolCallService;
         this.skillService = skillService;
         this.ragService = ragService;
+        this.roadTripAgentService = roadTripAgentService;
     }
 
     @Override
@@ -205,6 +219,40 @@ public class AiMessageHandler implements OnMessageListener {
         log.info("🎯 意图: {} city={} time={} payload='{}'",
                 intent.intent(), intent.city(), intent.time(), intent.payload());
         switch (intent.intent()) {
+            case AGENT -> {
+                log.info("🤖 Agent 目标: {}", intent.payload());
+                String goal = intent.payload();
+                safeSendText(from, "🤖 收到！正在为你规划「" + goal + "」，约需 30~60 秒，请稍候…");
+                AgentContext agentCtx =
+                        new AgentContext(
+                                from,
+                                new MessageSender() {
+                                    @Override
+                                    public void sendText(String text) {
+                                        safeSendText(from, text);
+                                    }
+
+                                    @Override
+                                    public void sendImage(byte[] imageBytes, String fileName, String caption) {
+                                        try {
+                                            bot.sendImage(from, imageBytes, fileName, caption);
+                                        } catch (Exception e) {
+                                            log.error("Agent 发送图片失败", e);
+                                        }
+                                    }
+                                });
+                agentExecutor.submit(
+                        () -> {
+                            try {
+                                String doc = roadTripAgentService.execute(goal, agentCtx);
+                                bot.sendTextWithTyping(from, doc, 300);
+                            } catch (Exception e) {
+                                log.error("Agent 执行失败", e);
+                                safeSendText(from, "🤖 规划失败了：" + e.getMessage());
+                            }
+                        });
+                return;
+            }
             case WEATHER -> {
                 log.info("🌤️ 处理天气查询: city={} time={}", intent.city(), intent.time());
                 try {

@@ -25,6 +25,10 @@ public class IntentRecognizer {
     private static final Pattern WEATHER_KEYWORDS =
         Pattern.compile("天气|气温|温度|几度|多少度|下雨|下雪|阴天|晴天|台风|降雨|降水|雨量|风力|预报|weather", Pattern.CASE_INSENSITIVE);
 
+    /** 长任务 Agent 触发关键词（一句话目标）。 */
+    private static final Pattern AGENT_KEYWORDS =
+        Pattern.compile("自驾|路书|旅游攻略|旅行方案|出行方案|行程规划|自驾游|旅行计划|出游计划|游玩攻略|攻略");
+
     /** 城市提取模式（按优先级，非贪婪匹配避免吞并前文）。 */
     private static final Pattern[] CITY_PATTERNS = {
         Pattern.compile("([\\u4e00-\\u9fa5]{2,6}?(?:省|市|县|区|镇))\\s*的?\\s*天气"),
@@ -56,6 +60,11 @@ public class IntentRecognizer {
             || text.equals("/语音开") || text.equals("/voice-on")
             || text.equals("/语音关") || text.equals("/voice-off")) {
             return IntentResult.withPayload(Intent.VOICE_MODE, text);
+        }
+
+        // 长任务 Agent（优先于天气/生图等单步意图）
+        if (AGENT_KEYWORDS.matcher(text).find()) {
+            return IntentResult.withPayload(Intent.AGENT, text);
         }
 
         // 天气意图（优先级高于生图/语音前缀，避免「画明天的天气」误判为生图）

@@ -84,4 +84,12 @@ class IntentRecognizerTest {
         assertEquals(Intent.CHAT, recognizer.recognize("讲个笑话").intent());
         assertEquals(Intent.CHAT, recognizer.recognize("你好").intent());
     }
+
+    @Test
+    void agentIntent() {
+        assertEquals(Intent.AGENT, recognizer.recognize("规划一次成都到稻城亚丁的自驾游").intent());
+        assertEquals(Intent.AGENT, recognizer.recognize("做一份北京到青岛的自驾路书").intent());
+        // 普通天气问题不应误判为 Agent
+        assertEquals(Intent.WEATHER, recognizer.recognize("北京明天天气").intent());
+    }
 }

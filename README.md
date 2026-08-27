@@ -215,3 +215,25 @@ src/main/java/com/example/wechataiassistant/
 - 配置：`rag.enabled`（开/关）、`rag.max-docs`、`rag.min-score`
 - 对比测试：`GET /wechat/test/rag?text=机器人支持哪些功能` 会同时返回关闭/开启 RAG 的两份回答
 - 自测：`GET /wechat/test/skill?text=今天是什么节日`
+
+### 长任务 Agent：智能出行规划师 🤖
+
+一句话目标 → Agent 自主拆解 ≥6 个子任务 → 多工具/Skill/RAG 闭环 → 完整路书成品。
+
+```
+用户：「规划一次成都到稻城亚丁的自驾游」
+ → Planner：LLM 拆解子任务计划（含依赖）
+ → Executor：依赖驱动执行
+     ① route_planning(LLM) 规划路线
+     ② get_weather(TOOL_LOOP) 逐城天气循环 ★
+     ③ 坐标→日出日落(TOOL_CHAIN) 链式
+     ④ budget(calculator) 预算
+     ⑤ drive_safety(RAG 自驾知识库) 安全知识
+     ⑥ generate_image 路书封面
+ → Assembler：固定章节模板 → 完整路书文档
+```
+
+- 触发：微信里说「规划一次 XX 自驾游」「做一份 XX 路书」等（含 自驾/路书/攻略/方案 关键词）
+- 自测：`GET /wechat/test/agent?goal=规划一次成都到稻城亚丁的自驾游`
+- 设计文档：`docs/roadtrip-agent-design.md`、`docs/agent-design.md`
+- 容错：单子任务失败不中断整体，成品中标注"该环节暂缺"
