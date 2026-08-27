@@ -47,10 +47,12 @@ public class LlmClient {
     private final RestClient imageClient;
     private final RestClient ttsClient;
     private final RestClient asrClient;
+    private final LlmCache cache;
 
-    public LlmClient(LlmProperties props, ObjectMapper mapper) {
+    public LlmClient(LlmProperties props, ObjectMapper mapper, LlmCache cache) {
         this.props = props;
         this.mapper = mapper;
+        this.cache = cache;
 
         this.chatClient = buildClient(props.getBaseUrl(), props.getApiKey());
         this.visionClient = buildClient(props.resolveVisionBaseUrl(), props.resolveVisionApiKey());
@@ -75,9 +77,32 @@ public class LlmClient {
         return props.getApiKey() != null && !props.getApiKey().isBlank();
     }
 
-    /** 文本对话（不带图片）。 */
+    /** 文本对话（不带图片）——带响应缓存，相同问题 TTL 内直接命中。 */
     public String chat(List<ChatMessage> messages) {
-        return chatInternal(chatClient, props.getChatModel(), messages, null);
+        String key = cacheKey(messages);
+        String cached = cache.get(key);
+        if (cached != null) {
+            log.info("⚡ LLM 缓存命中（省一次调用）");
+            return cached;
+        }
+        String reply = chatInternal(chatClient, props.getChatModel(), messages, null);
+        cache.put(key, reply);
+        return reply;
+    }
+
+    /** 缓存 key：system prompt + 最后一条 user 内容（历史变化不影响命中）。 */
+    private String cacheKey(List<ChatMessage> messages) {
+        StringBuilder sb = new StringBuilder(props.getSystemPrompt());
+        if (messages != null) {
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                ChatMessage m = messages.get(i);
+                if ("user".equals(m.role()) && m.content() != null) {
+                    sb.append("|").append(m.content());
+                    break;
+                }
+            }
+        }
+        return sb.toString();
     }
 
     /** 图片理解：把图片作为最后一条 user 消息的附件发给视觉模型。 */

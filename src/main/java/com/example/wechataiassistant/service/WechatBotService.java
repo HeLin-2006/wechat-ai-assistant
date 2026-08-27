@@ -127,6 +127,11 @@ public class WechatBotService implements AutoCloseable {
         return client.isLoggedIn();
     }
 
+    /** 连接状态（LOGGED_IN / DISCONNECTED 等）。 */
+    public String connectionStatus() {
+        return client.getConnectionStatus().name();
+    }
+
     /** 当前机器人自己的 userId（用于过滤自己发出的消息）。 */
     public String botUserId() {
         LoginContext ctx = client.getLoginContext();

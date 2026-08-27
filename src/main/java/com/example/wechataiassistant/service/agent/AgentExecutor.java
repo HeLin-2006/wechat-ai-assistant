@@ -45,13 +45,23 @@ public class AgentExecutor {
         this.mapper = mapper;
     }
 
-    /** 按依赖拓扑序执行所有子任务。 */
-    public void execute(AgentPlan plan, AgentContext ctx) {
+    /** 按依赖拓扑序执行所有子任务；支持断点续跑（跳过已完成步骤并恢复结果）。 */
+    public void execute(AgentPlan plan, AgentContext ctx, String runId, AgentRunStore store) {
         Map<Integer, AgentSubtask> byId = new LinkedHashMap<>();
         for (AgentSubtask s : plan.subtasks()) {
             byId.put(s.id(), s);
         }
         Set<Integer> done = new HashSet<>();
+        if (runId != null && store != null) {
+            AgentRunState st = store.get(runId);
+            if (st != null && st.getDoneIds() != null && !st.getDoneIds().isEmpty()) {
+                done.addAll(st.getDoneIds());
+                // 恢复已完成步骤的结果与错误（Assembler 需要）
+                st.getResults().forEach(ctx::putResult);
+                st.getErrors().forEach(ctx::putError);
+                log.info("♻️ 断点续跑：跳过已完成 {} 步，从中断处继续", done.size());
+            }
+        }
         while (done.size() < byId.size()) {
             boolean progressed = false;
             for (AgentSubtask s : byId.values()) {
@@ -63,6 +73,9 @@ public class AgentExecutor {
                 }
                 executeOne(s, plan, ctx);
                 done.add(s.id());
+                if (runId != null && store != null) {
+                    persistCheckpoint(runId, done, ctx, store);
+                }
                 progressed = true;
             }
             if (!progressed) {
@@ -70,6 +83,18 @@ public class AgentExecutor {
                 break;
             }
         }
+    }
+
+    /** 每完成一步就落盘 checkpoint（断点续跑的关键）。 */
+    private void persistCheckpoint(String runId, Set<Integer> done, AgentContext ctx, AgentRunStore store) {
+        AgentRunState st = store.get(runId);
+        if (st == null) {
+            return;
+        }
+        st.setDoneIds(new ArrayList<>(done));
+        st.setResults(ctx.exportResults());
+        st.setErrors(ctx.errors());
+        store.save(st);
     }
 
     private void executeOne(AgentSubtask s, AgentPlan plan, AgentContext ctx) {

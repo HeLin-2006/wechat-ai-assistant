@@ -63,4 +63,9 @@ public class AgentContext {
     public Map<String, String> errors() {
         return errors;
     }
+
+    /** 导出结果副本（供 checkpoint 持久化）。 */
+    public Map<String, Object> exportResults() {
+        return new LinkedHashMap<>(results);
+    }
 }

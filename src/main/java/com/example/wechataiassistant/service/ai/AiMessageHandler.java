@@ -73,13 +73,14 @@ public class AiMessageHandler implements OnMessageListener {
     /** 开启「语音模式」的用户（每次回复都附带语音，等价于 llm.voice-reply-enabled 的运行时开关）。 */
     private final Set<String> voiceModeUsers = ConcurrentHashMap.newKeySet();
 
-    private final ExecutorService executor =
-            Executors.newSingleThreadExecutor(
-                    r -> {
-                        Thread t = new Thread(r, "ai-message-worker");
-                        t.setDaemon(true);
-                        return t;
-                    });
+    /** 消息处理分片线程池：同用户永远进同一分片（保证上下文令牌顺序），不同用户并行处理。 */
+    private static final int SHARDS = 4;
+    private final ExecutorService[] shards;
+
+    private ExecutorService shardFor(String userId) {
+        int idx = (userId == null ? 0 : Math.abs(userId.hashCode())) % SHARDS;
+        return shards[idx];
+    }
 
     /** Agent 专用线程：长任务（30~60s）不阻塞普通消息处理。 */
     private final ExecutorService agentExecutor =
@@ -115,6 +116,18 @@ public class AiMessageHandler implements OnMessageListener {
         this.skillService = skillService;
         this.ragService = ragService;
         this.roadTripAgentService = roadTripAgentService;
+        // 初始化分片线程池（每片单线程：同用户串行，跨用户并行）
+        this.shards = new ExecutorService[SHARDS];
+        for (int i = 0; i < SHARDS; i++) {
+            int idx = i;
+            this.shards[i] =
+                    Executors.newSingleThreadExecutor(
+                            r -> {
+                                Thread t = new Thread(r, "msg-worker-" + idx);
+                                t.setDaemon(true);
+                                return t;
+                            });
+        }
     }
 
     @Override
@@ -146,7 +159,7 @@ public class AiMessageHandler implements OnMessageListener {
                 log.info("⏭️ 已配置忽略机器人自己的消息（wechat.ignore-self=true）");
                 continue;
             }
-            executor.submit(() -> handleSafely(msg));
+            shardFor(from).submit(() -> handleSafely(msg));
         }
     }
 
@@ -222,6 +235,8 @@ public class AiMessageHandler implements OnMessageListener {
             case AGENT -> {
                 log.info("🤖 Agent 目标: {}", intent.payload());
                 String goal = intent.payload();
+                // runId = 目标哈希：同一目标未完成时再次触发 → 自动断点续跑
+                String runId = String.format("%08x", goal.hashCode());
                 safeSendText(from, "🤖 收到！正在为你规划「" + goal + "」，约需 30~60 秒，请稍候…");
                 AgentContext agentCtx =
                         new AgentContext(
@@ -244,8 +259,10 @@ public class AiMessageHandler implements OnMessageListener {
                 agentExecutor.submit(
                         () -> {
                             try {
-                                String doc = roadTripAgentService.execute(goal, agentCtx);
-                                bot.sendTextWithTyping(from, doc, 300);
+                                RoadTripAgentService.AgentExecution exec =
+                                        roadTripAgentService.execute(goal, agentCtx, runId);
+                                String prefix = exec.resumed() ? "♻️ 已从中断处继续完成：\n\n" : "";
+                                bot.sendTextWithTyping(from, prefix + exec.document(), 300);
                             } catch (Exception e) {
                                 log.error("Agent 执行失败", e);
                                 safeSendText(from, "🤖 规划失败了：" + e.getMessage());

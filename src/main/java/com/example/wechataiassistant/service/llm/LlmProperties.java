@@ -81,6 +81,18 @@ public class LlmProperties {
     /** 每用户保留的上下文轮数（条消息数）。 */
     private int contextWindow = 10;
 
+    /** 上下文总字符预算（约 0.6~1 token/字符），0 表示不限制（省 token）。 */
+    private int contextMaxChars = 3000;
+
+    /** 是否启用 LLM 响应缓存（重复问题直接命中，省 token + 加速）。 */
+    private boolean cacheEnabled = true;
+
+    /** 缓存最大条目数（超限清空）。 */
+    private int cacheMaxEntries = 200;
+
+    /** 缓存有效期（分钟）。 */
+    private int cacheTtlMinutes = 10;
+
     /** 工具调用（Function Calling）最大轮数，防止死循环。 */
     private int toolMaxRounds = 4;
 
@@ -387,6 +399,38 @@ public class LlmProperties {
 
     public void setContextWindow(int contextWindow) {
         this.contextWindow = contextWindow;
+    }
+
+    public int getContextMaxChars() {
+        return contextMaxChars;
+    }
+
+    public void setContextMaxChars(int contextMaxChars) {
+        this.contextMaxChars = contextMaxChars;
+    }
+
+    public boolean isCacheEnabled() {
+        return cacheEnabled;
+    }
+
+    public void setCacheEnabled(boolean cacheEnabled) {
+        this.cacheEnabled = cacheEnabled;
+    }
+
+    public int getCacheMaxEntries() {
+        return cacheMaxEntries;
+    }
+
+    public void setCacheMaxEntries(int cacheMaxEntries) {
+        this.cacheMaxEntries = cacheMaxEntries;
+    }
+
+    public int getCacheTtlMinutes() {
+        return cacheTtlMinutes;
+    }
+
+    public void setCacheTtlMinutes(int cacheTtlMinutes) {
+        this.cacheTtlMinutes = cacheTtlMinutes;
     }
 
     public int getToolMaxRounds() {

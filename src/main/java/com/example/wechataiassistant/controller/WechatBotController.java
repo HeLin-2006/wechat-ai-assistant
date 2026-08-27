@@ -263,14 +263,18 @@ public class WechatBotController {
     }
 
     /**
-     * 长任务 Agent：一句话目标 → 完整路书成品（自主拆解/多工具/闭环）。
+     * 长任务 Agent：一句话目标 → 完整路书成品（自主拆解/多工具/闭环/断点续跑）。
+     * 传相同 runId 可续跑未完成任务。
      */
     @GetMapping("/test/agent")
-    public Map<String, Object> testAgent(@RequestParam(defaultValue = "规划一次成都到稻城亚丁的自驾游") String goal) {
+    public Map<String, Object> testAgent(
+        @RequestParam(defaultValue = "规划一次成都到稻城亚丁的自驾游") String goal,
+        @RequestParam(required = false) String runId) {
         try {
+            String rid = runId != null && !runId.isBlank() ? runId : String.format("%08x", goal.hashCode());
             AgentContext ctx = new AgentContext("test-user", null);
-            String doc = roadTripAgentService.execute(goal, ctx);
-            return Map.of("ok", true, "document", doc);
+            var exec = roadTripAgentService.execute(goal, ctx, rid);
+            return Map.of("ok", true, "runId", rid, "resumed", exec.resumed(), "document", exec.document());
         } catch (Exception e) {
             log.error("测试 Agent 失败", e);
             return Map.of("ok", false, "error", e.getMessage());

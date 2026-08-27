@@ -237,3 +237,19 @@ src/main/java/com/example/wechataiassistant/
 - 自测：`GET /wechat/test/agent?goal=规划一次成都到稻城亚丁的自驾游`
 - 设计文档：`docs/roadtrip-agent-design.md`、`docs/agent-design.md`
 - 容错：单子任务失败不中断整体，成品中标注"该环节暂缺"
+
+### 性能优化与稳定性 ⚡
+
+| 优化 | 说明 | 效果 |
+|---|---|---|
+| **定时任务** | 每日天气播报（默认 08:00，`scheduled.weather-report.*`）+ 每小时内存清理 + 健康检查 | 主动服务 + 防内存增长 |
+| **分片并行** | 消息处理按用户分片（同用户串行保证上下文令牌顺序，跨用户并行） | 多用户同时聊天不再排队 |
+| **LLM 响应缓存** | 相同问题 TTL 内直接命中（`llm.cache-*`） | 实测 4643ms → **24ms**，省一次调用 |
+| **上下文预算** | 按字符数裁剪历史（`llm.context-max-chars=3000`，约省 token） | 长对话上下文可控 |
+| **Agent 断点续跑** | 每完成一步落盘 checkpoint（`agent-checkpoints/`），中断/重启后同目标自动续跑 | 长任务不怕中断 |
+
+Agent 断点续跑示例：
+```
+第1次：执行到第4/6步 → 进程中断 → checkpoint 已保存（doneIds=[1,2,3,4]）
+第2次：发同一目标 → ♻️ 续跑：跳过已完成4步 → 只执行剩余2步 → 输出完整路书
+```

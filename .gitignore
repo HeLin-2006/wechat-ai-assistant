@@ -37,3 +37,6 @@ wechat-session.json
 
 # 本地密钥（含 API Key，勿提交）
 application-secret.properties
+
+# Agent 断点续跑 checkpoint（含中间结果）
+agent-checkpoints/
